@@ -11,8 +11,8 @@ srun \
 
 set -euo pipefail
 
-SIF="/scratch/ab9738/stamp/cuda11.8.86-cudnn8.7-devel-ubuntu22.04.2.sif"
-OVERLAY="/scratch/ab9738/stamp/overlay-25GB-500K.ext3"
+SIF="/scratch/ab9738/dsrc/cuda11.8.86-cudnn8.7-devel-ubuntu22.04.2.sif"
+OVERLAY="/scratch/ab9738/dsrc/dsrc_gpu_env.ext3"
 SING_BIN="/share/apps/apptainer/bin/singularity"
 
 RUNTIME_BASE="${SLURM_TMPDIR:-/tmp}/${USER}_appt_${SLURM_JOB_ID:-$$}"
@@ -33,9 +33,17 @@ nvidia-smi
   "${SIF}" \
   /bin/bash -lc "
     source /ext3/env.sh
-    cd /scratch/ab9738/fieldformer
+    cd /scratch/ab9738/dsrc
     echo \"[info] inside container on \$(hostname)\"
     echo \"[info] python: \$(which python)\"
+    python - <<'PY'
+import torch
+print('[info] torch:', torch.__version__)
+print('[info] cuda available:', torch.cuda.is_available())
+if torch.cuda.is_available():
+    print('[info] cuda device:', torch.cuda.get_device_name(torch.cuda.current_device()))
+PY
+    python /scratch/ab9738/dsrc/env_setup_scripts/install_check.py
     exec bash
   "
 '
