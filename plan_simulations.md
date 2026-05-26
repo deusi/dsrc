@@ -2,7 +2,7 @@
 
 **Centralized training, decentralized execution for self-regulating autonomous vehicles that use local sensing to realize network-level congestion control through desired speed and lane-placement commands.**
 
-This is a natural extension of your current paper because the uploaded draft already motivates vehicle-level local sensing, density estimation, speed regulation, partial adoption, and learning/adaptation beyond the current lookup-table controller. 
+This is a natural extension of the current self regulating cars papers. Earlier sensys draft already motivates vehicle-level local sensing, density estimation, speed regulation, partial adoption, and learning/adaptation beyond the current lookup-table controller. 
 
 Below is the project structure and a step-by-step execution plan.
 
@@ -14,22 +14,17 @@ The main hypothesis should be:
 
 > A small fraction of autonomous vehicles, trained with centralized traffic-level feedback but deployed with only local noisy sensing, can physically realize network-level congestion-control policies through desired-speed and lane-placement actions.
 
-This lets you connect several ideas:
+This connects several ideas:
 
 1. **Dynamic speed limits** are the infrastructure version.
 2. **Self-regulating AVs** are the infrastructure-free physical realization.
-3. **Backpressure-style control** is the network-control baseline.
-4. **CTDE RL** learns when and where AVs should slow down, hold lanes, change lanes, or create gaps.
-
-The paper should not just say “RL controls cars.” It should say:
+3. **CTDE RL** learns when and where AVs should slow down, hold lanes, change lanes, or create gaps.
 
 > AVs act as mobile actuators that implement traffic-control policies from inside the flow.
 
 ---
 
 # 2. Four topology levels
-
-Use exactly these four levels.
 
 ## Level 1: Ring road
 
@@ -52,7 +47,6 @@ Main actions:
 
 ```text
 desired speed only
-optional lane placement if two-lane ring is added later
 ```
 
 Primary metrics:
@@ -65,7 +59,7 @@ mean speed
 recovery time after perturbation
 ```
 
-This is your cleanest proof of concept.
+This is the cleanest proof of concept.
 
 ---
 
@@ -116,18 +110,12 @@ This is the right “middle” topology because it adds traffic-demand realism w
 
 Purpose: isolate lane-placement and gap-creation behavior.
 
-Use either a Y-merge or a lane-drop. I slightly prefer the Y-merge because it is closer to the inverted tree.
+Use a Y-merge.
 
 ```text
 mainline ----\
               ---> downstream trunk
 ramp --------/
-```
-
-or
-
-```text
-3 lanes  --->  2 lanes  --->  downstream
 ```
 
 What it tests:
@@ -207,10 +195,10 @@ Jain fairness over branch throughputs
 
 # 3. Updated project structure
 
-Assuming the environment already exists, I would organize the project like this:
+Organize the project like this:
 
 ```text
-self_regulating_avs/
+dsrc/
   README.md
   requirements.txt
 
@@ -331,7 +319,7 @@ self_regulating_avs/
 
 You should use the following baseline ladder.
 
-## B0. No AVs / human-only traffic
+## B1. No AVs / human-only traffic
 
 All vehicles use the default human driving model.
 
@@ -346,7 +334,7 @@ Use this for every topology and every demand level.
 
 ---
 
-## B1. Random AVs
+## B2. Random AVs
 
 AVs receive local observations but choose random desired speed/lane commands.
 
@@ -359,7 +347,7 @@ shows improvement is not just due to AV presence
 
 ---
 
-## B2. Selfish AVs / non-cooperative AVs
+## B3. Selfish AVs / non-cooperative AVs
 
 Each AV optimizes only its own progress.
 
@@ -385,7 +373,7 @@ This is an important baseline because it contrasts “autonomous driving for mys
 
 ---
 
-## B3. Density lookup controller
+## B4. Density lookup controller
 
 This is the direct continuation of your current paper.
 
@@ -415,7 +403,7 @@ This should be strong on ring and straight highway, weaker on merge/tree where l
 
 ---
 
-## B4. Dynamic speed limit: infrastructure oracle
+## B5. Dynamic speed limit: infrastructure oracle
 
 This is the infrastructure-based baseline.
 
@@ -439,7 +427,7 @@ This baseline answers:
 
 ---
 
-## B5. AV-mediated dynamic speed limit
+## B6. AV-mediated dynamic speed limit
 
 This is the more interesting version for your project.
 
@@ -471,7 +459,7 @@ learned CTDE AV policy
 
 ---
 
-## B6. Backpressure-style control
+## B7. Backpressure-style control
 
 Classic backpressure idea:
 
@@ -515,7 +503,7 @@ This is especially important for the inverted tree.
 
 ---
 
-## B7. Cooperative adaptive cruise control / smoothing controller
+## B8. Cooperative adaptive cruise control / smoothing controller
 
 Simple rule:
 
@@ -533,37 +521,10 @@ strong hand-designed decentralized baseline
 
 This gives reviewers a non-RL decentralized controller to compare against.
 
----
-
-## B8. CTDE learned policy: speed only
-
-Actor observes local sensing and outputs desired speed.
-
-Purpose:
-
-```text
-tests whether learning improves speed modulation
-```
-
-Use on all topologies.
 
 ---
 
-## B9. CTDE learned policy: lane only
-
-Actor observes local sensing and outputs desired lane/lane preference.
-
-Purpose:
-
-```text
-isolates value of lane placement
-```
-
-Mostly useful on multi-lane straight, merge, and inverted tree.
-
----
-
-## B10. CTDE learned policy: speed + lane
+## B9. CTDE learned policy: speed + lane
 
 Main method.
 
@@ -1226,7 +1187,7 @@ Run at least:
 
 # 8. Main paper figures
 
-I would target these figures.
+Target these figures.
 
 ## Figure 1: System overview
 
@@ -1287,157 +1248,12 @@ global reward
 CTDE critic
 ```
 
----
-
-# 9. What you should focus on first
-
-Given that the environment is already created, I would proceed in this order:
-
-## Task 1: Metrics first
-
-Implement segment-level and episode-level metrics.
-
-Do not start with RL yet.
-
-Output:
-
-```text
-segment_counts over time
-segment_speeds over time
-queue lengths
-throughput
-jam fraction
-travel time
-```
-
-Reason: without this, you cannot debug any controller.
 
 ---
 
-## Task 2: Demand generation
-
-Make sure demand levels actually create different congestion regimes.
-
-You want:
-
-```text
-low demand: no congestion
-medium demand: mild congestion
-high demand: congestion forms
-burst demand: sudden jam forms
-```
-
-Reason: if your demand regimes are wrong, all controllers will look similar.
-
----
-
-## Task 3: No-AV and random-AV baselines
-
-Run every topology.
-
-Reason: this gives you the baseline traffic behavior and confirms the environment is meaningful.
-
----
-
-## Task 4: Density lookup controller
-
-Implement the controller from your current paper.
-
-Reason: this is the bridge from the existing SRC paper to the new RL project.
-
----
-
-## Task 5: Dynamic speed limit baseline
-
-Implement infrastructure DSL.
-
-Reason: this gives you a strong upper-bound/control baseline.
-
----
-
-## Task 6: AV-mediated dynamic speed limit
-
-Implement the same DSL target but only through AVs.
-
-Reason: this is likely a central insight of the project.
-
-The comparison should be:
-
-```text
-No AV
-Infrastructure dynamic speed limit
-AV-mediated dynamic speed limit
-Learned CTDE AV policy
-```
-
-This is very publishable if the results are clean.
-
----
-
-## Task 7: Backpressure baseline
-
-Implement on merge first, then inverted tree.
-
-Reason: backpressure only makes sense once queues and downstream capacity matter.
-
----
-
-## Task 8: Speed-only RL on ring
-
-Simplest learning test.
-
-Reason: verify training pipeline.
-
----
-
-## Task 9: Speed+lane RL on merge
-
-First serious lane-placement test.
-
-Reason: if this does not beat speed-only on merge, lane control is not working.
-
----
-
-## Task 10: CTDE on inverted tree
-
-Final complexity.
-
-Reason: only after all simpler components are debugged.
-
----
-
-# 10. Suggested immediate implementation checklist
-
-Give yourself this checklist:
-
-```text
-[ ] Segment metrics implemented
-[ ] Demand profiles implemented
-[ ] Human driving profiles implemented
-[ ] No-AV baseline works
-[ ] Random-AV baseline works
-[ ] Selfish-AV baseline works
-[ ] Density lookup controller works
-[ ] Dynamic speed limit controller works
-[ ] AV-mediated dynamic speed limit works
-[ ] Backpressure controller works on merge
-[ ] Backpressure controller works on inverted tree
-[ ] Local noisy sensing implemented
-[ ] Safety layer stress-tested
-[ ] Speed-only PPO works on ring
-[ ] Speed-only PPO works on straight road
-[ ] Speed+lane PPO works on merge
-[ ] MAPPO/CTDE works on inverted tree
-[ ] Full evaluation sweep runs from config
-[ ] Plot scripts generate all main figures
-```
-
----
-
-# 11. Strongest story for the project
+# 9. Strongest story for the project
 
 The final story should be:
 
 > Classical traffic-control baselines such as dynamic speed limits and backpressure require infrastructure-level actuation. We ask whether a sparse fleet of autonomous vehicles can realize similar network-control effects from within the traffic stream. Using centralized training but decentralized execution, AVs learn local desired-speed and lane-placement policies that physically damp disturbances, create gaps near bottlenecks, and reduce spillback in branched networks. Experiments across ring, straight highway, merge, and inverted-tree topologies show when local AV control can approximate or outperform infrastructure-style regulation under varying demand, human driving behavior, and sensing noise.
 
-That is a much stronger framing than “we trained AVs with RL.”
