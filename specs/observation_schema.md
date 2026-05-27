@@ -15,6 +15,7 @@ The public local observation format should be one mapping per AV:
 
 Each local AV observation should standardize the following keys:
 
+- `is_active`
 - `ego_speed`
 - `ego_acceleration`
 - `ego_lane`
@@ -32,6 +33,12 @@ Each local AV observation should standardize the following keys:
 - `local_density_bin`
 - `local_mean_speed_bin`
 - `local_queue_estimate`
+- `active_vehicle_count_local`
+- `active_av_count_local`
+- `nearby_av_count`
+- `nearby_av_density`
+- `nearby_av_mean_speed`
+- `nearby_av_lane_distribution`
 
 Optional realism fields should stay under a nested `sensor` block rather than changing the top-level keys:
 
@@ -39,6 +46,14 @@ Optional realism fields should stay under a nested `sensor` block rather than ch
 - `sensor.latency_s`
 - `sensor.position_noise_std`
 - `sensor.speed_noise_std`
+
+Optional cooperative-intent fields should stay under a nested `cooperation` block:
+
+- `cooperation.nearby_av_intent_summary`
+
+The v1 cooperation contract exposes only local aggregate AV information. It should not expose individual neighboring AV identities or direct V2V messages.
+
+If `nearby_av_count == 0`, aggregate cooperation fields should use neutral fallback values and the policy must still be able to operate as an individual local controller.
 
 ## Global Critic State
 
@@ -52,6 +67,8 @@ The public global state should be one dict with stable top-level sections:
 - `segment_state`
 - `branch_state`
 - `demand_state`
+
+`active_vehicle_count` and `active_av_count` count only vehicles that are still on the topology. Vehicles that have exited should be excluded from AV/RV computation, local observations, rewards, and segment metrics; they should appear only in `completed_vehicle_count` or episode summaries.
 
 `segment_state` should be keyed by canonical segment identifier.
 
@@ -78,4 +95,3 @@ The executable interface should later be implemented under:
 - `src/sensing/`
 - `src/metrics/`
 - `src/envs/base_ctde_env.py`
-

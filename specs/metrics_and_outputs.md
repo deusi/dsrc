@@ -30,6 +30,9 @@ Standard step-level metric names:
 - `lane_change_count`
 - `queue_length_total`
 - `throughput_recent`
+- `rl_masked_action_count`
+- `external_safety_override_count`
+- `simulator_blocked_action_count`
 
 ## Segment Metrics
 
@@ -44,6 +47,10 @@ Standard segment-level metric names:
 - `jam_fraction`
 - `inflow`
 - `outflow`
+
+Active counts and segment counts should exclude vehicles that have exited the topology. Exited vehicles should contribute to completed vehicle counts, throughput, and episode summaries, but not to active AV/RV computation.
+
+Safety metrics should distinguish integrated RL masking, external safety overrides, and simulator-level blocked actions.
 
 ## Tree and Merge Metrics
 
@@ -67,4 +74,3 @@ Output-writing logic should later be shared by:
 - `scripts/run_baseline.py`
 - `scripts/evaluate_policy.py`
 - `src/analysis/`
-

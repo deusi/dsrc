@@ -22,6 +22,8 @@ This connects several ideas:
 
 > AVs act as mobile actuators that implement traffic-control policies from inside the flow.
 
+The v1 deployed cooperation model should use local aggregate AV context, not identity-level V2V messages. Each AV may observe nearby AV count, density, mean speed, lane distribution, and coarse intent summaries. If no AV is nearby, the policy must fall back to individual local operation.
+
 ---
 
 # 2. Four topology levels
@@ -637,9 +639,11 @@ Every AV action should use the same format:
 ```python
 action = {
     "desired_speed": float,
-    "desired_lane": int or lane_preference,
+    "desired_lane": "keep" | "left" | "right",
 }
 ```
+
+Lane commands are single-adjacent-lane preferences only. Do not expose `leftmost` or `rightmost`; multi-lane relocation must happen through repeated safe adjacent changes across multiple steps.
 
 Every baseline should implement:
 
@@ -669,6 +673,7 @@ Tasks:
 5. Confirm safety layer blocks unsafe lane changes.
 6. Confirm vehicles are removed after exit.
 7. Confirm no memory leak as vehicles spawn/despawn.
+8. Confirm inactive vehicles are absent from AV/RV computation, controller inputs, rewards, and segment metrics.
 ```
 
 Deliverable:
@@ -849,6 +854,7 @@ Implement the observation model for AVs.
 Each AV observation should include:
 
 ```text
+is active
 ego speed
 ego acceleration
 ego lane
@@ -862,7 +868,12 @@ right-lane front/rear gaps
 local density bins
 local mean speed bins
 segment-level local queue estimate
+local active vehicle and AV counts
+nearby AV count, density, mean speed, and lane distribution
+optional nearby AV intent summary
 ```
+
+Cooperation fields should be local aggregates only. They should not expose neighboring AV identities or direct V2V messages in v1. When `nearby_av_count` is zero, emit neutral aggregate values and require the controller to operate as an individual local policy.
 
 Then add realism:
 
@@ -888,7 +899,14 @@ This directly connects to your current paper’s sensing-range/latency/noise sto
 
 ## Phase 6: Safety/control layer
 
-The RL policy should not directly set unsafe acceleration.
+Safety has two paths:
+
+```text
+CTDE learned AVs: safety-aware action masking, reward penalties, and bounded action heads integrated with the RL controller
+non-learning baselines/RVs/human drivers: external safety filter or highway-env IDM/MOBIL safety behavior where appropriate
+```
+
+The RL policy should not directly set unsafe acceleration. For CTDE, unsafe actions should be masked or penalized during training before the final runtime guardrail sees them.
 
 Implement:
 
@@ -909,6 +927,23 @@ rear gap sufficient
 time-to-collision safe
 acceleration/deceleration bounded
 speed limit respected
+```
+
+Directional weighting:
+
+```text
+leader gap, leader relative speed, forward TTC, and downstream bottleneck distance are primary safety constraints
+rear/follower checks remain required for lane changes
+rear/follower pressure should not dominate longitudinal safety decisions
+density/control objectives may use both upstream and downstream aggregates
+```
+
+Safety diagnostics should distinguish:
+
+```text
+rl_masked_action
+external_safety_override
+simulator_blocked_action
 ```
 
 Deliverable:
@@ -1014,13 +1049,14 @@ Actor input:
 
 ```text
 local noisy observation
+local aggregate AV cooperation fields
 ```
 
 Actor output:
 
 ```text
 desired speed
-desired lane
+desired lane: keep, left, or right
 ```
 
 Reward:
@@ -1093,6 +1129,10 @@ AV counts per segment
 merge queues
 demand level
 ```
+
+Training should include safety-aware action masks and penalties in the CTDE controller path. Runtime wrappers should still keep a final guardrail for invalid simulator actions and should report masked/overridden/blocked actions separately.
+
+If no AVs are in the local neighborhood, the actor must fall back to individual operation using neutral aggregate cooperation fields.
 
 For inverted tree, this can initially be a flat vector. Later, you can replace the critic with a graph neural critic.
 
@@ -1256,4 +1296,3 @@ CTDE critic
 The final story should be:
 
 > Classical traffic-control baselines such as dynamic speed limits and backpressure require infrastructure-level actuation. We ask whether a sparse fleet of autonomous vehicles can realize similar network-control effects from within the traffic stream. Using centralized training but decentralized execution, AVs learn local desired-speed and lane-placement policies that physically damp disturbances, create gaps near bottlenecks, and reduce spillback in branched networks. Experiments across ring, straight highway, merge, and inverted-tree topologies show when local AV control can approximate or outperform infrastructure-style regulation under varying demand, human driving behavior, and sensing noise.
-

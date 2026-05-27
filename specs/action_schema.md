@@ -19,7 +19,7 @@ Every AV action should use the same dict structure:
 
 - units: meters per second
 - meaning: target cruising speed requested by the controller
-- wrapper responsibility: clamp to environment limits and hand off to the safety layer
+- wrapper responsibility: clamp to environment limits and hand off to the safety-aware controller path or external safety layer
 
 `desired_lane`
 
@@ -28,10 +28,29 @@ Every AV action should use the same dict structure:
   - `keep`
   - `left`
   - `right`
+- lane changes are single-adjacent-lane preferences only
+- multi-lane relocation must be expressed as repeated safe adjacent lane changes over multiple steps
+- disallowed values:
   - `leftmost`
   - `rightmost`
 
 The public interface should not expose topology-specific lane indices because those change across ring, straight, merge, and tree layouts.
+
+## Validation and Safety Diagnostics
+
+Wrappers should reject unsupported lane labels before stepping the simulator.
+
+Lane preferences should also be checked against topology and lane availability:
+
+- `left` is invalid if no adjacent left lane exists
+- `right` is invalid if no adjacent right lane exists
+- unsafe but syntactically valid lane changes should be blocked or modified by the appropriate safety mechanism
+
+When an action is blocked, masked, or modified, the environment `info` payload should expose diagnostics with stable event names:
+
+- `rl_masked_action`
+- `external_safety_override`
+- `simulator_blocked_action`
 
 ## Action Mapping
 
@@ -51,4 +70,3 @@ The executable contract should live in:
 - `src/envs/base_ctde_env.py`
 - `src/envs/wrappers.py`
 - `src/controllers/base.py`
-

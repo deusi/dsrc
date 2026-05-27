@@ -40,6 +40,27 @@ Metadata should stay lightweight and include:
 - `family`
 - `version`
 - `requires_global_state`
+- `cooperation_mode`
+- `safety_mode`
+- `supports_fallback_individual`
+
+Allowed `cooperation_mode` values:
+
+- `none`
+- `local_aggregate`
+- `global_state`
+
+Allowed `safety_mode` values:
+
+- `external_filter`
+- `integrated_rl`
+- `simulator_default`
+
+Baselines should declare `external_filter` or `simulator_default`.
+
+CTDE learned AV controllers should declare `integrated_rl`.
+
+Cooperative learned controllers should declare `local_aggregate` and `supports_fallback_individual: true` when they consume local aggregate AV fields and can operate without neighboring AVs.
 
 ## Repo Ownership
 
@@ -51,4 +72,3 @@ Baseline and RL implementations should later live under:
 
 - `src/baselines/`
 - `src/rl/`
-

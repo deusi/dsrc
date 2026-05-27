@@ -38,23 +38,30 @@ get_episode_summary() -> dict
 - returns `local_observations, rewards, terminated, truncated, info`
 - `rewards` is keyed by AV identifier
 - `terminated` and `truncated` are episode-level booleans
+- `av_actions`, `local_observations`, and `rewards` are keyed only by currently active AV identifiers
+- inactive or exited AV identifiers should be rejected or ignored with an explicit diagnostic, depending on wrapper strictness
+- blocked, masked, or modified actions should be reported through `info`
 
 `get_local_observations()`
 
 - returns the latest AV-indexed observation mapping without stepping the simulator
+- excludes inactive or exited AVs
 
 `get_global_state()`
 
 - returns the centralized critic state for CTDE training
 - may include topology-level and segment-level fields not visible to individual AVs
+- active vehicle counts include only vehicles still on the topology
 
 `get_segment_metrics()`
 
 - returns one mapping per segment keyed by canonical segment identifier
+- excludes inactive or exited vehicles from per-segment counts
 
 `get_episode_summary()`
 
 - returns a compact rollup used for CSV, JSON, and experiment summaries
+- may include completed/exited vehicle counts
 
 ## Standard Identifiers
 
@@ -82,4 +89,3 @@ Topology-specific implementations should later live under:
 
 - `src/envs/`
 - `src/road/`
-

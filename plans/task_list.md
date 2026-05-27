@@ -6,13 +6,13 @@ Approach these tasks sequentially. Each item is intentionally broad enough to be
    Make sure the installed `highway_env` package runs correctly from this repo, including reset/step/render, multi-agent actions, and basic straight/merge environments.
 
 2. **Define the project interface**
-   Standardize the environment wrapper API, action format, observation format, config loading, and controller interface before building many experiments.
+   Standardize the environment wrapper API, action format, observation format, config loading, and controller interface before building many experiments. Include the lane-action contraction to `keep`/`left`/`right`, active vehicle lifecycle semantics, cooperative local aggregate observations, the CTDE integrated safety contract, and forward-weighted safety metrics.
 
 3. **Build the topology ladder**
    Implement or wrap the four target road setups in order: ring road, straight highway, merge/bottleneck, then inverted tree.
 
 4. **Add traffic demand generation**
-   Create reproducible spawning, inflow/outflow handling, AV penetration rates, branch splits, and low/medium/high/burst demand profiles.
+   Create reproducible spawning, inflow/outflow handling, AV penetration rates, branch splits, low/medium/high/burst demand profiles, and explicit active/inactive vehicle lifecycle handling after vehicles leave the topology.
 
 5. **Implement vehicle roles and behavior profiles**
    Separate AVs from regular vehicles, then add cautious, normal, aggressive, and heterogeneous human-driver settings.
@@ -21,10 +21,10 @@ Approach these tasks sequentially. Each item is intentionally broad enough to be
    Log throughput, travel time, speed variance, queues, hard braking, lane use, collisions, segment metrics, and fairness before serious control work.
 
 7. **Implement local sensing for AVs**
-   Give each AV local observations first, then add noisy sensing, limited range, latency, and density/speed estimates.
+   Give each AV local observations first, including local aggregate AV cooperation fields with neutral fallback when no AVs are nearby. Then add noisy sensing, limited range, latency, and density/speed estimates.
 
 8. **Add the safety/control layer**
-   Convert desired-speed and desired-lane commands into bounded, safe vehicle behavior with lane-change checks and emergency overrides.
+   Convert desired-speed and single-adjacent-lane commands into bounded, safe vehicle behavior with lane-change checks and emergency overrides. Integrate safety-aware masking/penalties with CTDE controllers, and keep a separate external safety path for baselines/RVs/human drivers where needed.
 
 9. **Build the baseline ladder**
    Add human-only, random AVs, selfish AVs, density lookup, dynamic speed limits, AV-mediated speed limits, backpressure, and cooperative smoothing.

@@ -9,8 +9,6 @@ LANE_PREFERENCES: tuple[LanePreference, ...] = (
     "keep",
     "left",
     "right",
-    "leftmost",
-    "rightmost",
 )
 
 
@@ -59,4 +57,3 @@ def validate_action_mapping(
             raise ValueError(f"action mapping keys {sorted(actual)} do not match expected AV ids {sorted(expected)}")
 
     return normalized
-

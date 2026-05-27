@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Literal, Mapping, Sequence, TypeAlias, TypedDict
 
 
-LanePreference: TypeAlias = Literal["keep", "left", "right", "leftmost", "rightmost"]
+LanePreference: TypeAlias = Literal["keep", "left", "right"]
 
 
 class AVAction(TypedDict):
@@ -63,4 +63,3 @@ class BaseCTDEEnv(ABC):
     @abstractmethod
     def get_episode_summary(self) -> EpisodeSummary:
         """Return the canonical episode summary record."""
-
