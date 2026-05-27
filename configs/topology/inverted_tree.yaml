@@ -1,0 +1,76 @@
+id: inverted_tree
+kind: topology
+description: Six-origin inverted-tree network for branch fairness and spillback experiments.
+road:
+  layout: inverted_tree
+  leaf_m: 500.0
+  middle_m: 600.0
+  trunk_m: 600.0
+  bottleneck_m: 300.0
+  speed_limit_mps: 30.0
+  lane_counts:
+    leaves: 1
+    middle: 2
+    trunk: 2
+    bottleneck: 1
+  segment_ids:
+    - tree_leaf_a1
+    - tree_leaf_a2
+    - tree_leaf_a3
+    - tree_leaf_a4
+    - tree_leaf_a5
+    - tree_leaf_a6
+    - tree_middle_b1
+    - tree_middle_b2
+    - tree_trunk_c
+    - tree_bottleneck_d
+  segment_lengths:
+    tree_leaf_a1: 500.0
+    tree_leaf_a2: 500.0
+    tree_leaf_a3: 500.0
+    tree_leaf_a4: 500.0
+    tree_leaf_a5: 500.0
+    tree_leaf_a6: 500.0
+    tree_middle_b1: 600.0
+    tree_middle_b2: 600.0
+    tree_trunk_c: 600.0
+    tree_bottleneck_d: 300.0
+  entry_segments:
+    - tree_leaf_a1
+    - tree_leaf_a2
+    - tree_leaf_a3
+    - tree_leaf_a4
+    - tree_leaf_a5
+    - tree_leaf_a6
+  exit_segments:
+    - tree_bottleneck_d
+  merge_nodes:
+    - tree_merge_b1
+    - tree_merge_b2
+    - tree_merge_c
+  detector_locations:
+    tree_leaf_a1:
+      - 500.0
+    tree_leaf_a2:
+      - 500.0
+    tree_leaf_a3:
+      - 500.0
+    tree_leaf_a4:
+      - 500.0
+    tree_leaf_a5:
+      - 500.0
+    tree_leaf_a6:
+      - 500.0
+    tree_middle_b1:
+      - 600.0
+    tree_middle_b2:
+      - 600.0
+    tree_trunk_c:
+      - 300.0
+    tree_bottleneck_d:
+      - 300.0
+control:
+  supports_lane_change: true
+  supported_action_fields:
+    - desired_speed
+    - desired_lane

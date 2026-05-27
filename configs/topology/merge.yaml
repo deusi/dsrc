@@ -1,0 +1,46 @@
+id: merge
+kind: topology
+description: Y-merge and downstream bottleneck topology for gap creation and lane placement.
+road:
+  layout: merge
+  mainline_upstream_m: 800.0
+  ramp_m: 500.0
+  weave_m: 250.0
+  trunk_m: 700.0
+  speed_limit_mps: 30.0
+  lane_counts:
+    mainline: 2
+    ramp: 1
+    trunk: 2
+  segment_ids:
+    - merge_main_upstream
+    - merge_ramp
+    - merge_weave
+    - merge_trunk
+  segment_lengths:
+    merge_main_upstream: 800.0
+    merge_ramp: 500.0
+    merge_weave: 250.0
+    merge_trunk: 700.0
+  entry_segments:
+    - merge_main_upstream
+    - merge_ramp
+  exit_segments:
+    - merge_trunk
+  merge_nodes:
+    - merge_0
+  detector_locations:
+    merge_main_upstream:
+      - 750.0
+    merge_ramp:
+      - 450.0
+    merge_weave:
+      - 125.0
+    merge_trunk:
+      - 650.0
+control:
+  supports_lane_change: true
+  supported_action_fields:
+    - desired_speed
+    - desired_lane
+

@@ -34,6 +34,35 @@ class DummyController(BaseController):
         }
 
 
+def validate_topology_ladder_if_available() -> None:
+    try:
+        from src.envs.topology_env import HighwayTopologyEnv
+        from src.road.topology_factory import TOPOLOGY_IDS, build_topology
+    except ModuleNotFoundError as exc:
+        missing = exc.name or "unknown dependency"
+        print(f"topology ladder validation skipped; missing optional simulation dependency: {missing}")
+        return
+
+    for topology_id in TOPOLOGY_IDS:
+        topology = build_topology(topology_id)
+        assert topology.topology_id == topology_id
+        assert all(topology.segment_lengths[segment_id] > 0 for segment_id in topology.segment_ids)
+        assert set(topology.detector_locations).issubset(set(topology.segment_ids))
+
+    env = HighwayTopologyEnv("ring", {"controlled_vehicles": 2, "duration_steps": 2})
+    obs, info = env.reset(seed=7)
+    assert info["topology_id"] == "ring"
+    assert set(obs) == {"av_0", "av_1"}
+    actions = {agent_id: {"desired_speed": 20.0, "desired_lane": "keep"} for agent_id in obs}
+    next_obs, rewards, terminated, truncated, step_info = env.step(actions)
+    assert set(next_obs) == set(rewards)
+    assert terminated is False
+    assert truncated is False
+    assert step_info["topology_id"] == "ring"
+    assert env.get_global_state()["topology_id"] == "ring"
+    assert set(env.get_segment_metrics()) == {"ring_main"}
+
+
 def main() -> int:
     assert LANE_PREFERENCES == ("keep", "left", "right")
     for lane_preference in LANE_PREFERENCES:
@@ -116,6 +145,8 @@ def main() -> int:
             pass
         else:
             raise AssertionError(f"metadata should reject {bad_metadata_kwargs}")
+
+    validate_topology_ladder_if_available()
 
     print("project interface validation passed")
     return 0
