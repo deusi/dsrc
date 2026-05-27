@@ -20,6 +20,11 @@ metrics:
     - jam_fraction
     - wave_amplitude
     - recovery_time
+  safety:
+    - rolling_roadblock_score
+    - lane_changes_per_av_km
+    - hard_brakes_caused_by_av
+    - av_low_speed_uncongested_fraction
 outputs:
   episode_summary: outputs/metrics/exp_ring_wave_damping/episode_summary.json
   step_metrics: outputs/metrics/exp_ring_wave_damping/step_metrics.csv
@@ -27,4 +32,3 @@ outputs:
 overrides:
   demand:
     total_vehicles_per_hour: 1600
-

@@ -30,7 +30,18 @@ Optional metadata should be exposed through:
 
 - `local_obs` is required and keyed by AV identifier
 - `global_state` is optional so the same interface works for decentralized baselines and CTDE controllers
-- return value is the canonical AV action mapping
+- return value is the canonical v2 AV action mapping:
+
+```python
+{
+    "av_0": {
+        "desired_speed_bin": "nominal",
+        "desired_headway_bin": "normal",
+        "lane_preference": "keep",
+        "merge_mode": "normal",
+    }
+}
+```
 
 ## Metadata
 
@@ -61,6 +72,8 @@ Baselines should declare `external_filter` or `simulator_default`.
 CTDE learned AV controllers should declare `integrated_rl`.
 
 Cooperative learned controllers should declare `local_aggregate` and `supports_fallback_individual: true` when they consume local aggregate AV fields and can operate without neighboring AVs.
+
+Controllers must not return joint lane-blocking plans, lane-coverage assignments, raw acceleration, raw braking, or direct left/right lane-change commands. Lane control is secondary and conservative; primary control is smooth speed/headway damping.
 
 ## Repo Ownership
 

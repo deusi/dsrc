@@ -4,12 +4,17 @@ from abc import ABC, abstractmethod
 from typing import Any, Literal, Mapping, Sequence, TypeAlias, TypedDict
 
 
-LanePreference: TypeAlias = Literal["keep", "left", "right"]
+SpeedBin: TypeAlias = Literal["slow", "nominal", "fast"]
+HeadwayBin: TypeAlias = Literal["normal", "larger", "largest"]
+LanePreference: TypeAlias = Literal["keep", "prefer_left_if_safe", "prefer_right_if_safe"]
+MergeMode: TypeAlias = Literal["normal", "create_gap", "hold_lane"]
 
 
 class AVAction(TypedDict):
-    desired_speed: float
-    desired_lane: LanePreference
+    desired_speed_bin: SpeedBin
+    desired_headway_bin: HeadwayBin
+    lane_preference: LanePreference
+    merge_mode: MergeMode
 
 
 LocalObservation: TypeAlias = Mapping[str, Any]

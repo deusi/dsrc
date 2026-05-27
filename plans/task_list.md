@@ -6,7 +6,7 @@ Approach these tasks sequentially. Each item is intentionally broad enough to be
    Make sure the installed `highway_env` package runs correctly from this repo, including reset/step/render, multi-agent actions, and basic straight/merge environments.
 
 2. **Define the project interface**
-   Standardize the environment wrapper API, action format, observation format, config loading, and controller interface before building many experiments. Include the lane-action contraction to `keep`/`left`/`right`, active vehicle lifecycle semantics, cooperative local aggregate observations, the CTDE integrated safety contract, and forward-weighted safety metrics.
+   Standardize the environment wrapper API, v2 action format, observation format, config loading, and controller interface before building many experiments. The v2 action contract is `desired_speed_bin`, `desired_headway_bin`, `lane_preference`, and `merge_mode`; lane preferences are conservative and must pass a safety/etiquette layer. Include active vehicle lifecycle semantics, aggregate-only cooperation, the CTDE integrated safety contract, and forward-weighted safety metrics.
 
 3. **Build the topology ladder**
    Implement or wrap the four target road setups in order: ring road, straight highway, merge/bottleneck, then inverted tree.
@@ -18,22 +18,22 @@ Approach these tasks sequentially. Each item is intentionally broad enough to be
    Separate AVs from regular vehicles, then add cautious, normal, aggressive, and heterogeneous human-driver settings.
 
 6. **Create metrics and logging**
-   Log throughput, travel time, speed variance, queues, hard braking, lane use, collisions, segment metrics, and fairness before serious control work.
+   Log throughput, travel time, speed variance, queues, hard braking, lane use, collisions, segment metrics, fairness, follower disruption, lane-change dwell, all-lane low-speed occupancy, and rolling-roadblock score before serious control work.
 
 7. **Implement local sensing for AVs**
    Give each AV local observations first, including local aggregate AV cooperation fields with neutral fallback when no AVs are nearby. Then add noisy sensing, limited range, latency, and density/speed estimates.
 
-8. **Add the safety/control layer**
-   Convert desired-speed and single-adjacent-lane commands into bounded, safe vehicle behavior with lane-change checks and emergency overrides. Integrate safety-aware masking/penalties with CTDE controllers, and keep a separate external safety path for baselines/RVs/human drivers where needed.
+8. **Add the safety, etiquette, and physical-control layer**
+   Convert speed/headway bins and conservative lane preferences into bounded, safe vehicle behavior with acceleration limits, headway control, lane-change dwell, safe front/rear gap checks, follower-disruption blocks, low-speed-uncongested blocks, and emergency overrides. Integrate safety-aware masking/penalties with CTDE controllers, and keep a separate external safety path for baselines/RVs/human drivers where needed.
 
 9. **Build the baseline ladder**
-   Add human-only, random AVs, selfish AVs, density lookup, dynamic speed limits, AV-mediated speed limits, backpressure, and cooperative smoothing.
+   Add human-only, random AVs, selfish AVs, density lookup, dynamic speed limits, AV-mediated speed harmonization, backpressure-inspired speed metering, and cooperative smoothing.
 
 10. **Run topology-by-topology validation**
     For each topology, verify spawning, routing, exits, detector counts, metrics, and baseline behavior before moving to the next topology.
 
 11. **Train the CTDE policy**
-    Add centralized-training/decentralized-execution RL for local AV policies once environments and baselines are stable.
+    Add centralized-training/decentralized-execution RL for local AV policies once environments and baselines are stable. The actor should learn smooth speed/headway targets with conservative lane preferences; it must not learn obstruction, lane hogging, or coordinated roadblock behavior.
 
 12. **Evaluate and compare experiments**
     Sweep topology, demand level, AV penetration, human-driver model, sensing noise, and baselines.

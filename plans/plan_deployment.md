@@ -8,7 +8,7 @@ The prototype is not used for vehicle control. It only displays recommended beha
 
 ```text
 Recommended speed: 42 mph
-Lane suggestion: keep lane / prepare left / prepare right
+Lane suggestion: keep lane / prefer left if safe / prefer right if safe
 Traffic state: high density ahead
 Confidence: medium
 ```
@@ -216,8 +216,10 @@ Actor interface:
 obs = observation_builder.build(...)
 action = actor(obs)
 
-desired_speed = action["desired_speed"]
-desired_lane = action["desired_lane"]
+desired_speed_bin = action["desired_speed_bin"]
+desired_headway_bin = action["desired_headway_bin"]
+lane_preference = action["lane_preference"]
+merge_mode = action["merge_mode"]
 confidence = action["confidence"]
 ```
 
@@ -249,7 +251,9 @@ Example display:
 ```text
 Current speed:      46 mph
 Recommended speed: 41 mph
+Recommended gap:   Larger
 Lane advice:       Keep lane
+Merge mode:        Normal
 Traffic density:   High
 Detected vehicles: 8
 Confidence:        Medium
@@ -440,7 +444,7 @@ Measure latency.
 Deliverable:
 
 ```text
-policy_inference.py outputs desired speed/lane recommendations in real time.
+policy_inference.py outputs speed/headway recommendations and conservative lane preferences in real time.
 ```
 
 ---
@@ -449,7 +453,7 @@ policy_inference.py outputs desired speed/lane recommendations in real time.
 
 ```text
 Build simple display interface.
-Show current speed, recommended speed, lane advice, traffic density, FPS, latency.
+Show current speed, recommended speed/headway, conservative lane advice, traffic density, FPS, latency.
 ```
 
 Deliverable:

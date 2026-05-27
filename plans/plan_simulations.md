@@ -1,6 +1,6 @@
 # DSRC Plan
 
-**Centralized training, decentralized execution for self-regulating autonomous vehicles that use local sensing to realize network-level congestion control through desired speed and lane-placement commands.**
+**Centralized training, decentralized execution for self-regulating autonomous vehicles that use local sensing to realize network-level congestion control through smooth speed/headway damping and conservative lane preferences.**
 
 This is a natural extension of the current self regulating cars papers. Earlier sensys draft already motivates vehicle-level local sensing, density estimation, speed regulation, partial adoption, and learning/adaptation beyond the current lookup-table controller. 
 
@@ -12,17 +12,75 @@ Below is the project structure and a step-by-step execution plan.
 
 The main hypothesis should be:
 
-> A small fraction of autonomous vehicles, trained with centralized traffic-level feedback but deployed with only local noisy sensing, can physically realize network-level congestion-control policies through desired-speed and lane-placement actions.
+> A small fraction of autonomous vehicles, trained with centralized traffic-level feedback but deployed with only local noisy sensing, can physically realize network-level congestion-control policies through smooth desired-speed and desired-headway targets with conservative lane preferences.
 
 This connects several ideas:
 
 1. **Dynamic speed limits** are the infrastructure version.
 2. **Self-regulating AVs** are the infrastructure-free physical realization.
-3. **CTDE RL** learns when and where AVs should slow down, hold lanes, change lanes, or create gaps.
+3. **CTDE RL** learns when and where AVs should harmonize speed, increase headway, hold lanes, or create merge gaps.
 
 > AVs act as mobile actuators that implement traffic-control policies from inside the flow.
 
-The v1 deployed cooperation model should use local aggregate AV context, not identity-level V2V messages. Each AV may observe nearby AV count, density, mean speed, lane distribution, and coarse intent summaries. If no AV is nearby, the policy must fall back to individual local operation.
+The v2 deployed cooperation model should use aggregate traffic-state context, not identity-level V2V messages or joint lane-occupation plans. Each AV may observe nearby AV count, density, mean speed, queue estimates, downstream congestion estimates, segment target speed, and merge pressure. If no AV is nearby, the policy must fall back to individual local operation.
+
+---
+
+# Safety-Constrained Physical Flow Control
+
+AVs should control flow through smooth longitudinal damping and cooperative gap creation, not through obstruction. Good performance should not be achievable through lane hogging, oscillatory lane changes, rolling roadblocks, or trapping human drivers.
+
+Primary mechanisms:
+
+```text
+speed harmonization
+adaptive headway control
+cooperative merge gap creation
+lane-change suppression near bottlenecks
+backpressure-inspired speed metering
+disturbance absorption / jam wave cancellation
+```
+
+The actor should output:
+
+```text
+desired_speed_bin
+desired_headway_bin
+lane_preference: keep | prefer_left_if_safe | prefer_right_if_safe
+merge_mode: normal | create_gap | hold_lane
+```
+
+The safety/etiquette layer should enforce:
+
+```text
+minimum lane-change dwell time
+maximum lane changes per km
+safe front and rear gaps
+rear braking limit for target-lane followers
+bounded acceleration and deceleration
+minimum contextual speed
+no low-speed driving in uncongested conditions
+no coordinated all-lane slowdown unless downstream congestion justifies it
+```
+
+Allowed communication:
+
+```text
+aggregate density
+mean speed
+queue estimate
+downstream congestion estimate
+segment-level target speed
+merge pressure
+```
+
+Disallowed communication:
+
+```text
+joint lane occupation plans
+AV-to-lane blocking assignments
+coordinated roadblock formations
+```
 
 ---
 
@@ -80,7 +138,7 @@ Use two versions:
     isolates speed control
 
 2B. multi-lane straight highway
-    introduces lane placement
+    introduces conservative lane preferences and lane-change suppression
 ```
 
 What it tests:
@@ -110,7 +168,7 @@ This is the right “middle” topology because it adds traffic-demand realism w
 
 ## Level 3: Merge / bottleneck
 
-Purpose: isolate lane-placement and gap-creation behavior.
+Purpose: isolate cooperative gap creation, headway control, and conservative lane preference behavior.
 
 Use a Y-merge.
 
@@ -125,7 +183,7 @@ What it tests:
 ```text
 merge coordination
 gap creation
-lane placement
+conservative lane preference
 bottleneck smoothing
 queue reduction
 ```
@@ -280,7 +338,7 @@ dsrc/
       selfish_av.py
       density_lookup.py
       dynamic_speed_limit.py
-      av_mediated_speed_limit.py
+      av_mediated_speed_harmonization.py
       backpressure.py
       cooperative_acc.py
 
@@ -401,7 +459,7 @@ simple interpretable self-regulation
 non-learning baseline
 ```
 
-This should be strong on ring and straight highway, weaker on merge/tree where lane placement matters.
+This should be strong on ring and straight highway, weaker on merge/tree where headway and merge-gap behavior matter.
 
 ---
 
@@ -429,16 +487,19 @@ This baseline answers:
 
 ---
 
-## B6. AV-mediated dynamic speed limit
+## B6. AV-mediated speed harmonization
 
 This is the more interesting version for your project.
 
-The same dynamic speed limit controller computes desired segment speeds, but **only AVs implement them**.
+The same dynamic speed limit controller computes desired segment speeds, but **only AVs implement them as smooth compliance targets**.
 
 ```text
 segment speed target exists
-only AVs receive/realize the target
+only AVs receive/realize the target smoothly
 human vehicles are influenced physically through car-following
+humans may pass if safe
+AVs do not change lanes solely to cover all lanes
+AVs do not slow below target by more than a small tolerance
 ```
 
 Purpose:
@@ -449,7 +510,7 @@ tests whether sparse AVs can physically realize segment-level speed control
 
 This is probably one of your strongest baselines/contributions. You can say:
 
-> Dynamic speed limits require infrastructure; sparse AVs can approximate their effect by acting as mobile damping actuators.
+> Dynamic speed limits require infrastructure; sparse AVs can approximate their effect by acting as moving compliant vehicles, not roadblocks.
 
 Compare:
 
@@ -526,14 +587,14 @@ This gives reviewers a non-RL decentralized controller to compare against.
 
 ---
 
-## B9. CTDE learned policy: speed + lane
+## B9. CTDE learned policy: speed + headway + conservative lane
 
 Main method.
 
 Actor:
 
 ```text
-local noisy AV observation -> desired speed + desired lane placement
+local noisy AV observation -> speed/headway bins + conservative lane preference + merge mode
 ```
 
 Critic:
@@ -638,12 +699,14 @@ Every AV action should use the same format:
 
 ```python
 action = {
-    "desired_speed": float,
-    "desired_lane": "keep" | "left" | "right",
+    "desired_speed_bin": "slow" | "nominal" | "fast",
+    "desired_headway_bin": "normal" | "larger" | "largest",
+    "lane_preference": "keep" | "prefer_left_if_safe" | "prefer_right_if_safe",
+    "merge_mode": "normal" | "create_gap" | "hold_lane",
 }
 ```
 
-Lane commands are single-adjacent-lane preferences only. Do not expose `leftmost` or `rightmost`; multi-lane relocation must happen through repeated safe adjacent changes across multiple steps.
+Lane commands are conservative preferences only. Do not expose direct `left`/`right`, lane-coverage plans, or roadblock formations. The safety/etiquette layer decides whether any lateral command is legal, comfortable, and non-obstructive.
 
 Every baseline should implement:
 
@@ -897,7 +960,7 @@ This directly connects to your current paper’s sensing-range/latency/noise sto
 
 ---
 
-## Phase 6: Safety/control layer
+## Phase 6: Safety, etiquette, and physical-control layer
 
 Safety has two paths:
 
@@ -911,11 +974,15 @@ The RL policy should not directly set unsafe acceleration. For CTDE, unsafe acti
 Implement:
 
 ```text
-desired speed -> target speed with acceleration limits
-desired lane -> target lane if safe
+desired speed bin -> target speed with acceleration limits
+desired headway bin -> target headway
+lane preference -> target lane only if safe and courteous
+merge mode -> gap creation or lane-hold behavior
 unsafe lane change -> blocked
 short headway -> override speed downward
 low TTC -> emergency safety behavior
+low speed in uncongested conditions -> blocked
+all-lane low-speed AV occupancy -> blocked unless downstream congestion justifies it
 ```
 
 Safety checks:
@@ -927,6 +994,9 @@ rear gap sufficient
 time-to-collision safe
 acceleration/deceleration bounded
 speed limit respected
+lane-change dwell respected
+lane changes per km bounded
+target-lane rear vehicle does not need excessive braking
 ```
 
 Directional weighting:
@@ -941,7 +1011,9 @@ density/control objectives may use both upstream and downstream aggregates
 Safety diagnostics should distinguish:
 
 ```text
-rl_masked_action
+safety_masked_action
+etiquette_blocked_action
+follower_disruption_blocked
 external_safety_override
 simulator_blocked_action
 ```
@@ -997,12 +1069,12 @@ Global segment density to segment target speed.
 python scripts/run_baseline.py --controller dynamic_speed_limit --topology straight_multilane
 ```
 
-### 7.6 AV-mediated dynamic speed limit
+### 7.6 AV-mediated speed harmonization
 
-Same segment targets, but only AVs implement them.
+Same segment targets, but only AVs implement them smoothly as compliant vehicles.
 
 ```bash
-python scripts/run_baseline.py --controller av_mediated_speed_limit --topology straight_multilane
+python scripts/run_baseline.py --controller av_mediated_speed_harmonization --topology straight_multilane
 ```
 
 ### 7.7 Backpressure
@@ -1056,7 +1128,9 @@ Actor output:
 
 ```text
 desired speed
-desired lane: keep, left, or right
+desired headway
+conservative lane preference
+merge mode
 ```
 
 Reward:
@@ -1168,7 +1242,7 @@ random_av
 selfish_av
 density_lookup
 dynamic_speed_limit
-av_mediated_speed_limit
+av_mediated_speed_harmonization
 backpressure
 av_mediated_backpressure
 CTDE_speed_only
@@ -1231,7 +1305,7 @@ Target these figures.
 
 ## Figure 1: System overview
 
-Local AV sensing → desired speed/lane → physical damping → network metrics.
+Local AV sensing → speed/headway targets + conservative lane preference → physical damping → network and safety metrics.
 
 ## Figure 2: Four topologies
 
@@ -1245,7 +1319,7 @@ Compare:
 no AV
 selfish AV
 density lookup
-CTDE speed+lane
+CTDE speed+headway+conservative lane
 ```
 
 on ring or straight road.
@@ -1282,10 +1356,12 @@ Perfect sensing vs noisy sensing vs noisy+latency.
 ```text
 speed only
 lane only
-speed + lane
+speed + headway + conservative lane
 local reward
 global reward
 CTDE critic
+safety/etiquette diagnostics
+rolling-roadblock score
 ```
 
 
@@ -1295,4 +1371,4 @@ CTDE critic
 
 The final story should be:
 
-> Classical traffic-control baselines such as dynamic speed limits and backpressure require infrastructure-level actuation. We ask whether a sparse fleet of autonomous vehicles can realize similar network-control effects from within the traffic stream. Using centralized training but decentralized execution, AVs learn local desired-speed and lane-placement policies that physically damp disturbances, create gaps near bottlenecks, and reduce spillback in branched networks. Experiments across ring, straight highway, merge, and inverted-tree topologies show when local AV control can approximate or outperform infrastructure-style regulation under varying demand, human driving behavior, and sensing noise.
+> Classical traffic-control baselines such as dynamic speed limits and backpressure require infrastructure-level actuation. We ask whether a sparse fleet of autonomous vehicles can realize similar network-control effects from within the traffic stream without obstruction. Using centralized training but decentralized execution, AVs learn local desired-speed and desired-headway targets with conservative lane preferences. A hard safety and etiquette layer prevents lane hogging, oscillatory lane changes, follower disruption, and rolling-roadblock behavior. Experiments across ring, straight highway, merge, and inverted-tree topologies show when local AV control can damp disturbances, create merge gaps, reduce spillback, and improve fairness under varying demand, human driving behavior, and sensing noise.

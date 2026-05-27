@@ -11,7 +11,21 @@ if str(REPO_ROOT) not in sys.path:
 from src.config.loaders import compose_experiment_config
 from src.controllers.base import BaseController, ControllerMetadata
 from src.envs.base_ctde_env import AVObservationMap
-from src.envs.wrappers import LANE_PREFERENCES, validate_action, validate_action_mapping
+from src.envs.wrappers import HEADWAY_BINS, LANE_PREFERENCES, MERGE_MODES, SPEED_BINS, validate_action, validate_action_mapping
+
+
+def sample_v2_action(
+    speed: str = "nominal",
+    headway: str = "normal",
+    lane: str = "keep",
+    merge: str = "normal",
+) -> dict[str, str]:
+    return {
+        "desired_speed_bin": speed,
+        "desired_headway_bin": headway,
+        "lane_preference": lane,
+        "merge_mode": merge,
+    }
 
 
 class DummyController(BaseController):
@@ -26,10 +40,7 @@ class DummyController(BaseController):
 
     def act(self, local_obs: AVObservationMap, global_state=None):
         return {
-            agent_id: {
-                "desired_speed": 20.0,
-                "desired_lane": "keep",
-            }
+            agent_id: sample_v2_action()
             for agent_id in local_obs
         }
 
@@ -53,7 +64,7 @@ def validate_topology_ladder_if_available() -> None:
     obs, info = env.reset(seed=7)
     assert info["topology_id"] == "ring"
     assert set(obs) == {"av_0", "av_1"}
-    actions = {agent_id: {"desired_speed": 20.0, "desired_lane": "keep"} for agent_id in obs}
+    actions = {agent_id: sample_v2_action() for agent_id in obs}
     next_obs, rewards, terminated, truncated, step_info = env.step(actions)
     assert set(next_obs) == set(rewards)
     assert terminated is False
@@ -64,32 +75,47 @@ def validate_topology_ladder_if_available() -> None:
 
 
 def main() -> int:
-    assert LANE_PREFERENCES == ("keep", "left", "right")
+    assert SPEED_BINS == ("slow", "nominal", "fast")
+    assert HEADWAY_BINS == ("normal", "larger", "largest")
+    assert LANE_PREFERENCES == ("keep", "prefer_left_if_safe", "prefer_right_if_safe")
+    assert MERGE_MODES == ("normal", "create_gap", "hold_lane")
+    for speed_bin in SPEED_BINS:
+        assert validate_action(sample_v2_action(speed=speed_bin))["desired_speed_bin"] == speed_bin
+    for headway_bin in HEADWAY_BINS:
+        assert validate_action(sample_v2_action(headway=headway_bin))["desired_headway_bin"] == headway_bin
     for lane_preference in LANE_PREFERENCES:
-        assert validate_action({"desired_speed": 20.0, "desired_lane": lane_preference})["desired_lane"] == lane_preference
+        assert validate_action(sample_v2_action(lane=lane_preference))["lane_preference"] == lane_preference
+    for merge_mode in MERGE_MODES:
+        assert validate_action(sample_v2_action(merge=merge_mode))["merge_mode"] == merge_mode
 
-    for disallowed_lane_preference in ("leftmost", "rightmost"):
+    for bad_action in (
+        {"desired_speed": 20.0, "desired_lane": "keep"},
+        sample_v2_action(lane="left"),
+        sample_v2_action(lane="right"),
+        sample_v2_action(merge="block_lanes"),
+        {"desired_speed_bin": "nominal", "lane_preference": "keep", "merge_mode": "normal"},
+    ):
         try:
-            validate_action({"desired_speed": 20.0, "desired_lane": disallowed_lane_preference})
+            validate_action(bad_action)
         except ValueError:
             pass
         else:
-            raise AssertionError(f"{disallowed_lane_preference} should not be accepted")
+            raise AssertionError(f"{bad_action} should not be accepted")
 
     sample_actions = validate_action_mapping(
         {
-            "av_0": {"desired_speed": 22.0, "desired_lane": "keep"},
-            "av_1": {"desired_speed": 18.5, "desired_lane": "left"},
+            "av_0": sample_v2_action(),
+            "av_1": sample_v2_action(speed="slow", headway="larger", lane="prefer_left_if_safe", merge="create_gap"),
         },
         expected_agent_ids=["av_0", "av_1"],
     )
-    assert sample_actions["av_0"]["desired_lane"] == "keep"
-    assert sample_actions["av_1"]["desired_speed"] == 18.5
+    assert sample_actions["av_0"]["lane_preference"] == "keep"
+    assert sample_actions["av_1"]["desired_speed_bin"] == "slow"
     try:
         validate_action_mapping(
             {
-                "av_0": {"desired_speed": 22.0, "desired_lane": "keep"},
-                "av_inactive": {"desired_speed": 18.5, "desired_lane": "right"},
+                "av_0": sample_v2_action(),
+                "av_inactive": sample_v2_action(lane="prefer_right_if_safe"),
             },
             expected_agent_ids=["av_0"],
         )

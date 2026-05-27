@@ -2,13 +2,28 @@ from __future__ import annotations
 
 from typing import Any, Iterable, Mapping
 
-from src.envs.base_ctde_env import AVAction, AVActionMap, LanePreference
+from src.envs.base_ctde_env import AVAction, AVActionMap, HeadwayBin, LanePreference, MergeMode, SpeedBin
 
 
+SPEED_BINS: tuple[SpeedBin, ...] = (
+    "slow",
+    "nominal",
+    "fast",
+)
+HEADWAY_BINS: tuple[HeadwayBin, ...] = (
+    "normal",
+    "larger",
+    "largest",
+)
 LANE_PREFERENCES: tuple[LanePreference, ...] = (
     "keep",
-    "left",
-    "right",
+    "prefer_left_if_safe",
+    "prefer_right_if_safe",
+)
+MERGE_MODES: tuple[MergeMode, ...] = (
+    "normal",
+    "create_gap",
+    "hold_lane",
 )
 
 
@@ -27,19 +42,29 @@ def tuple_observation_to_mapping(
 
 def validate_action(action: Mapping[str, Any]) -> AVAction:
     """Validate one public AV action object."""
-    if "desired_speed" not in action:
-        raise ValueError("action is missing required field 'desired_speed'")
-    if "desired_lane" not in action:
-        raise ValueError("action is missing required field 'desired_lane'")
+    required_fields = ("desired_speed_bin", "desired_headway_bin", "lane_preference", "merge_mode")
+    for field in required_fields:
+        if field not in action:
+            raise ValueError(f"action is missing required field '{field}'")
 
-    desired_speed = float(action["desired_speed"])
-    desired_lane = action["desired_lane"]
-    if desired_lane not in LANE_PREFERENCES:
-        raise ValueError(f"unsupported desired_lane '{desired_lane}'")
+    desired_speed_bin = action["desired_speed_bin"]
+    desired_headway_bin = action["desired_headway_bin"]
+    lane_preference = action["lane_preference"]
+    merge_mode = action["merge_mode"]
+    if desired_speed_bin not in SPEED_BINS:
+        raise ValueError(f"unsupported desired_speed_bin '{desired_speed_bin}'")
+    if desired_headway_bin not in HEADWAY_BINS:
+        raise ValueError(f"unsupported desired_headway_bin '{desired_headway_bin}'")
+    if lane_preference not in LANE_PREFERENCES:
+        raise ValueError(f"unsupported lane_preference '{lane_preference}'")
+    if merge_mode not in MERGE_MODES:
+        raise ValueError(f"unsupported merge_mode '{merge_mode}'")
 
     return {
-        "desired_speed": desired_speed,
-        "desired_lane": desired_lane,
+        "desired_speed_bin": desired_speed_bin,
+        "desired_headway_bin": desired_headway_bin,
+        "lane_preference": lane_preference,
+        "merge_mode": merge_mode,
     }
 
 
@@ -57,3 +82,35 @@ def validate_action_mapping(
             raise ValueError(f"action mapping keys {sorted(actual)} do not match expected AV ids {sorted(expected)}")
 
     return normalized
+
+
+def decode_speed_bin(
+    speed_bin: SpeedBin,
+    free_flow_speed_mps: float = 30.0,
+    min_contextual_speed_mps: float = 12.0,
+) -> float:
+    """Decode a discrete speed target into a contextual speed in m/s."""
+    offsets = {
+        "slow": -10.0,
+        "nominal": -3.0,
+        "fast": 0.0,
+    }
+    return max(min_contextual_speed_mps, free_flow_speed_mps + offsets[speed_bin])
+
+
+def decode_headway_bin(headway_bin: HeadwayBin) -> float:
+    """Decode a discrete headway target into seconds."""
+    return {
+        "normal": 1.6,
+        "larger": 2.2,
+        "largest": 3.0,
+    }[headway_bin]
+
+
+def lane_preference_to_action(lane_preference: LanePreference) -> str | None:
+    """Map conservative lane preference to a simulator lane action candidate."""
+    return {
+        "keep": None,
+        "prefer_left_if_safe": "LANE_LEFT",
+        "prefer_right_if_safe": "LANE_RIGHT",
+    }[lane_preference]

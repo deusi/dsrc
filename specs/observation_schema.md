@@ -19,6 +19,10 @@ Each local AV observation should standardize the following keys:
 - `ego_speed`
 - `ego_acceleration`
 - `ego_lane`
+- `ego_headway_s`
+- `target_headway_s`
+- `time_since_last_lane_change`
+- `lane_changes_last_km`
 - `current_segment`
 - `distance_to_next_merge`
 - `distance_to_downstream_bottleneck`
@@ -30,6 +34,13 @@ Each local AV observation should standardize the following keys:
 - `left_lane_rear_gap`
 - `right_lane_front_gap`
 - `right_lane_rear_gap`
+- `target_lane_front_gap`
+- `target_lane_rear_gap`
+- `target_lane_rear_required_decel`
+- `downstream_congestion_estimate`
+- `merge_pressure`
+- `segment_target_speed`
+- `uncongested_low_speed_flag`
 - `local_density_bin`
 - `local_mean_speed_bin`
 - `local_queue_estimate`
@@ -47,13 +58,30 @@ Optional realism fields should stay under a nested `sensor` block rather than ch
 - `sensor.position_noise_std`
 - `sensor.speed_noise_std`
 
-Optional cooperative-intent fields should stay under a nested `cooperation` block:
+Optional cooperative aggregate fields should stay under a nested `cooperation` block:
 
-- `cooperation.nearby_av_intent_summary`
+- `cooperation.segment_target_speed`
+- `cooperation.merge_pressure`
+- `cooperation.downstream_congestion_estimate`
 
-The v1 cooperation contract exposes only local aggregate AV information. It should not expose individual neighboring AV identities or direct V2V messages.
+The v2 cooperation contract exposes only aggregate traffic-state information. It should not expose individual neighboring AV identities, direct V2V messages, AV-to-lane assignments, or coordinated lane-occupation plans.
 
 If `nearby_av_count == 0`, aggregate cooperation fields should use neutral fallback values and the policy must still be able to operate as an individual local controller.
+
+Allowed communication/aggregation:
+
+- local density
+- mean speed
+- queue estimate
+- downstream congestion estimate
+- segment-level target speed
+- merge pressure
+
+Disallowed communication/aggregation:
+
+- joint lane occupation plans
+- instructions for which AV should occupy which lane
+- coordinated roadblock formations
 
 ## Global Critic State
 

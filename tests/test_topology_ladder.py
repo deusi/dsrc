@@ -26,6 +26,15 @@ EXPECTED_SEGMENTS = {
 }
 
 
+def safe_action() -> dict[str, str]:
+    return {
+        "desired_speed_bin": "nominal",
+        "desired_headway_bin": "normal",
+        "lane_preference": "keep",
+        "merge_mode": "normal",
+    }
+
+
 @pytest.mark.parametrize("topology_id", TOPOLOGY_IDS)
 def test_topology_factory_metadata(topology_id: str) -> None:
     spec = build_topology(topology_id)
@@ -66,7 +75,7 @@ def test_highway_topology_env_smoke(topology_id: str) -> None:
     assert env.get_global_state()["topology_id"] == topology_id
     assert set(env.get_segment_metrics()) == set(EXPECTED_SEGMENTS[topology_id])
 
-    actions = {agent_id: {"desired_speed": 22.0, "desired_lane": "keep"} for agent_id in obs}
+    actions = {agent_id: safe_action() for agent_id in obs}
     next_obs, rewards, terminated, truncated, step_info = env.step(actions)
     assert set(next_obs) == set(rewards)
     assert isinstance(terminated, bool)
@@ -74,5 +83,5 @@ def test_highway_topology_env_smoke(topology_id: str) -> None:
     assert step_info["topology_id"] == topology_id
 
     with pytest.raises(ValueError):
-        env.step({"av_inactive": {"desired_speed": 22.0, "desired_lane": "keep"}})
+        env.step({"av_inactive": safe_action()})
 
