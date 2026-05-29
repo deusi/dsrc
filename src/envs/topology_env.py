@@ -24,6 +24,7 @@ from src.road.segment_graph import TopologySpec
 from src.road.topology_factory import build_topology
 from src.safety import SafetyConstraints, SafetyContext, SafetyState, apply_safety_layer
 from src.safety.etiquette import is_low_speed_uncongested
+from src.vehicles import HumanBehaviorModel, load_human_behavior_model
 
 ensure_highway_env_importable()
 
@@ -38,6 +39,7 @@ class VehicleMeta:
     role: str
     branch_id: str
     entry_segment: str
+    behavior_profile: str | None = None
 
 
 class HighwayTopologyEnv(BaseCTDEEnv):
@@ -62,6 +64,8 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         self._spawned_vehicle_count = 0
         self._spawned_av_count = 0
         self._spawned_human_count = 0
+        self._spawned_human_by_profile: dict[str, int] = {}
+        self._completed_human_by_profile: dict[str, int] = {}
         self._skipped_spawn_count = 0
         self._per_branch_spawned: dict[str, int] = {}
         self._per_branch_completed: dict[str, int] = {}
@@ -74,6 +78,7 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         self._next_human_index = 0
         self._route_plan: RoutePlan = build_route_plan(self.topology)
         self._demand_profile: DemandProfile = load_demand_profile(None, enabled=False)
+        self._human_behavior_model: HumanBehaviorModel = load_human_behavior_model(None)
         self._demand_spawner: DemandSpawner | None = None
         self._step_count = 0
         self._time = 0.0
@@ -107,6 +112,8 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         self._spawned_vehicle_count = 0
         self._spawned_av_count = 0
         self._spawned_human_count = 0
+        self._spawned_human_by_profile = {}
+        self._completed_human_by_profile = {}
         self._skipped_spawn_count = 0
         self._per_branch_spawned = {branch.branch_id: 0 for branch in self._route_plan.branches}
         self._per_branch_completed = {branch.branch_id: 0 for branch in self._route_plan.branches}
@@ -119,6 +126,7 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         self._next_human_index = 0
         self._step_count = 0
         self._time = 0.0
+        self._human_behavior_model = load_human_behavior_model(self._human_model_config())
         self._configure_demand_spawner()
         if not self._uses_continuous_demand():
             self._spawn_controlled_vehicles()
@@ -220,6 +228,7 @@ class HighwayTopologyEnv(BaseCTDEEnv):
                 "per_branch_skipped_spawn": dict(self._per_branch_skipped_spawn),
             },
             "demand_state": self._demand_state(),
+            "vehicle_role_state": self._vehicle_role_state(),
         }
 
     def get_segment_metrics(self) -> SegmentMetrics:
@@ -478,6 +487,10 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         demand_config = self.config.get("demand")
         return demand_config if isinstance(demand_config, Mapping) else None
 
+    def _human_model_config(self) -> Mapping[str, Any] | None:
+        human_model_config = self.config.get("human_model")
+        return human_model_config if isinstance(human_model_config, Mapping) else None
+
     def _uses_continuous_demand(self) -> bool:
         return self._demand_spawner is not None and self._demand_profile.enabled and self._route_plan.enabled
 
@@ -488,7 +501,13 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         if self.road is None or not self._demand_profile.enabled or not self._route_plan.enabled:
             self._demand_spawner = None
             return
-        self._demand_spawner = DemandSpawner(self._demand_profile, self._route_plan, self.topology, self.road.np_random)
+        self._demand_spawner = DemandSpawner(
+            self._demand_profile,
+            self._route_plan,
+            self.topology,
+            self.road.np_random,
+            self._human_behavior_model,
+        )
 
     def _spawn_demand_vehicles(self) -> None:
         if self.road is None or self._demand_spawner is None:
@@ -512,6 +531,7 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         branch_id: str,
         vehicle: ControlledVehicle,
         branch: BranchRoute,
+        behavior_profile: str | None = None,
     ) -> str:
         if self.road is None:
             raise RuntimeError("road is not initialized")
@@ -527,6 +547,8 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             self._next_human_index += 1
             self._human_vehicles[vehicle_id] = vehicle  # type: ignore[assignment]
             self._spawned_human_count += 1
+            if behavior_profile is not None:
+                self._spawned_human_by_profile[behavior_profile] = self._spawned_human_by_profile.get(behavior_profile, 0) + 1
         else:
             raise ValueError(f"unsupported vehicle role '{role}'")
 
@@ -536,6 +558,7 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             role=role,
             branch_id=branch_id,
             entry_segment=branch.entry_segment,
+            behavior_profile=behavior_profile,
         )
         self._spawned_vehicle_count += 1
         self._per_branch_spawned[branch_id] = self._per_branch_spawned.get(branch_id, 0) + 1
@@ -556,6 +579,7 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             role="av",
             branch_id=branch_id,
             entry_segment=entry_segment,
+            behavior_profile=None,
         )
         self._safety_states[agent_id] = SafetyState(last_lane_index=vehicle.lane_index)
         self._target_headways[agent_id] = 1.6
@@ -569,6 +593,10 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         self._completed_vehicle_count += 1
         if meta is not None:
             self._per_branch_completed[meta.branch_id] = self._per_branch_completed.get(meta.branch_id, 0) + 1
+            if meta.role == "human" and meta.behavior_profile is not None:
+                self._completed_human_by_profile[meta.behavior_profile] = (
+                    self._completed_human_by_profile.get(meta.behavior_profile, 0) + 1
+                )
         segment_id = self.topology.segment_for_lane(vehicle.lane_index)
         if segment_id is not None:
             self._step_outflow[segment_id] = self._step_outflow.get(segment_id, 0) + 1
@@ -588,7 +616,29 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             "branch_split": dict(self._demand_profile.branch_split),
             "skipped_spawn_count": self._skipped_spawn_count,
             "per_branch_skipped_spawn": dict(self._per_branch_skipped_spawn),
+            "active_human_by_profile": self._active_human_by_profile(),
+            "spawned_human_by_profile": dict(self._spawned_human_by_profile),
+            "completed_human_by_profile": dict(self._completed_human_by_profile),
         }
+
+    def _vehicle_role_state(self) -> dict[str, Any]:
+        return {
+            "human_model_id": self._human_behavior_model.model_id,
+            "active_av_count": len(self._av_vehicles),
+            "active_human_count": len(self._human_vehicles),
+            "active_human_by_profile": self._active_human_by_profile(),
+            "spawned_human_by_profile": dict(self._spawned_human_by_profile),
+            "completed_human_by_profile": dict(self._completed_human_by_profile),
+        }
+
+    def _active_human_by_profile(self) -> dict[str, int]:
+        counts: dict[str, int] = {}
+        for vehicle in self._human_vehicles.values():
+            meta = self._vehicle_meta.get(id(vehicle))
+            if meta is None or meta.behavior_profile is None:
+                continue
+            counts[meta.behavior_profile] = counts.get(meta.behavior_profile, 0) + 1
+        return counts
 
     def _route_metadata(self) -> dict[str, Any]:
         return {

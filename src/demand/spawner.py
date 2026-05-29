@@ -9,6 +9,7 @@ from src.demand.demand_profiles import DemandProfile
 from src.demand.route_sampler import BranchRoute, RoutePlan, road_route_to_destination
 from src.road.highway_imports import ensure_highway_env_importable
 from src.road.segment_graph import TopologySpec
+from src.vehicles import HumanBehaviorModel, load_human_behavior_model, apply_human_behavior_profile
 
 ensure_highway_env_importable()
 
@@ -17,7 +18,7 @@ from highway_env.vehicle.behavior import IDMVehicle
 from highway_env.vehicle.controller import ControlledVehicle
 
 
-VehicleFactory = Callable[[str, str, ControlledVehicle, BranchRoute], str]
+VehicleFactory = Callable[[str, str, ControlledVehicle, BranchRoute, str | None], str]
 
 
 @dataclass(frozen=True)
@@ -33,11 +34,13 @@ class DemandSpawner:
         route_plan: RoutePlan,
         topology: TopologySpec,
         rng: np.random.RandomState,
+        human_behavior_model: HumanBehaviorModel | None = None,
     ) -> None:
         self.profile = profile
         self.route_plan = route_plan
         self.topology = topology
         self.rng = rng
+        self.human_behavior_model = human_behavior_model or load_human_behavior_model(None)
         self._lane_cursor: dict[str, int] = {branch.branch_id: 0 for branch in route_plan.branches}
 
     def reset(self) -> None:
@@ -65,11 +68,13 @@ class DemandSpawner:
             if vehicle is None:
                 skipped.append({"branch_id": branch.branch_id, "reason": "entry_gap"})
                 continue
-            vehicle_id = register_vehicle(role, branch.branch_id, vehicle, branch)
+            behavior_profile = getattr(vehicle, "behavior_profile", None) if role == "human" else None
+            vehicle_id = register_vehicle(role, branch.branch_id, vehicle, branch, behavior_profile)
             spawned.append(
                 {
                     "vehicle_id": vehicle_id,
                     "role": role,
+                    "behavior_profile": behavior_profile,
                     "branch_id": branch.branch_id,
                     "entry_segment": branch.entry_segment,
                     "lane_index": vehicle.lane_index,
@@ -120,7 +125,17 @@ class DemandSpawner:
         vehicle.route = road_route_to_destination(lane_index, branch.destination, self.topology)
         if isinstance(vehicle, IDMVehicle):
             vehicle.enable_lane_change = self.topology.supports_lane_change
-            vehicle.target_speed = speed
+            profile_id = self.human_behavior_model.sample_profile_id(self.rng)
+            profile = self.human_behavior_model.profile_for(profile_id)
+            lane = road.network.get_lane(lane_index)
+            apply_human_behavior_profile(
+                vehicle,
+                profile,
+                base_target_speed_mps=speed,
+                min_speed_mps=self.profile.speed_distribution.min_mps,
+                max_speed_mps=self.profile.speed_distribution.max_mps,
+                lane_speed_limit_mps=lane.speed_limit,
+            )
         return vehicle
 
     def _sample_speed(self) -> float:
