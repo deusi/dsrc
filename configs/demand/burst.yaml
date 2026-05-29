@@ -1,12 +1,15 @@
-id: medium
+id: burst
 kind: demand
-description: Medium traffic demand for baseline throughput experiments.
+description: Medium baseline flow with a temporary burst window.
 total_vehicles_per_hour: 1800
 av_penetration: 0.1
 branch_split:
   main: 1.0
 burst:
-  enabled: false
+  enabled: true
+  start_s: 300
+  end_s: 600
+  multiplier: 1.8
 speed_distribution:
   mean_mps: 24.0
   std_mps: 2.5

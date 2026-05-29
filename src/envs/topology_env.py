@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 import numpy as np
 
+from src.demand import BranchRoute, DemandProfile, DemandSpawner, build_route_plan, load_demand_profile
+from src.demand.route_sampler import RoutePlan, road_route_to_destination
 from src.envs.base_ctde_env import (
     AVActionMap,
     AVObservationMap,
@@ -25,7 +28,16 @@ from src.safety.etiquette import is_low_speed_uncongested
 ensure_highway_env_importable()
 
 from highway_env.road.road import LaneIndex, Road
+from highway_env.vehicle.behavior import IDMVehicle
 from highway_env.vehicle.controller import ControlledVehicle
+
+
+@dataclass(frozen=True)
+class VehicleMeta:
+    vehicle_id: str
+    role: str
+    branch_id: str
+    entry_segment: str
 
 
 class HighwayTopologyEnv(BaseCTDEEnv):
@@ -38,13 +50,31 @@ class HighwayTopologyEnv(BaseCTDEEnv):
     ) -> None:
         self.topology_id = topology_id
         self.config = dict(config or {})
-        self.topology: TopologySpec = build_topology(topology_id, self.config.get("road"))
+        self.topology: TopologySpec = build_topology(topology_id, self._road_config())
         self.agent_ids = default_agent_ids(int(self.config.get("controlled_vehicles", 2)))
         self.road: Road | None = None
-        self._vehicles: dict[str, ControlledVehicle] = {}
+        self._av_vehicles: dict[str, ControlledVehicle] = {}
+        self._human_vehicles: dict[str, IDMVehicle] = {}
+        self._vehicle_meta: dict[int, VehicleMeta] = {}
         self._safety_states: dict[str, SafetyState] = {}
         self._target_headways: dict[str, float] = {}
         self._completed_vehicle_count = 0
+        self._spawned_vehicle_count = 0
+        self._spawned_av_count = 0
+        self._spawned_human_count = 0
+        self._skipped_spawn_count = 0
+        self._per_branch_spawned: dict[str, int] = {}
+        self._per_branch_completed: dict[str, int] = {}
+        self._per_branch_skipped_spawn: dict[str, int] = {}
+        self._step_inflow: dict[str, int] = {}
+        self._step_outflow: dict[str, int] = {}
+        self._last_spawn_events: list[dict[str, Any]] = []
+        self._last_skipped_spawn_events: list[dict[str, Any]] = []
+        self._next_av_index = 0
+        self._next_human_index = 0
+        self._route_plan: RoutePlan = build_route_plan(self.topology)
+        self._demand_profile: DemandProfile = load_demand_profile(None, enabled=False)
+        self._demand_spawner: DemandSpawner | None = None
         self._step_count = 0
         self._time = 0.0
 
@@ -56,25 +86,50 @@ class HighwayTopologyEnv(BaseCTDEEnv):
     ) -> tuple[AVObservationMap, InfoDict]:
         if config:
             self.config.update(config)
-            self.topology = build_topology(self.topology_id, self.config.get("road"))
+            self.topology = build_topology(self.topology_id, self._road_config())
         if options and "config" in options and isinstance(options["config"], Mapping):
             self.config.update(options["config"])
-            self.topology = build_topology(self.topology_id, self.config.get("road"))
+            self.topology = build_topology(self.topology_id, self._road_config())
 
         self.agent_ids = default_agent_ids(int(self.config.get("controlled_vehicles", len(self.agent_ids))))
+        self._route_plan = build_route_plan(self.topology)
         self.road = Road(
             network=self.topology.road_network,
             np_random=np.random.RandomState(seed),
             record_history=False,
         )
-        self._vehicles = {}
+        self._av_vehicles = {}
+        self._human_vehicles = {}
+        self._vehicle_meta = {}
         self._safety_states = {}
         self._target_headways = {}
         self._completed_vehicle_count = 0
+        self._spawned_vehicle_count = 0
+        self._spawned_av_count = 0
+        self._spawned_human_count = 0
+        self._skipped_spawn_count = 0
+        self._per_branch_spawned = {branch.branch_id: 0 for branch in self._route_plan.branches}
+        self._per_branch_completed = {branch.branch_id: 0 for branch in self._route_plan.branches}
+        self._per_branch_skipped_spawn = {branch.branch_id: 0 for branch in self._route_plan.branches}
+        self._step_inflow = {segment_id: 0 for segment_id in self.topology.segment_ids}
+        self._step_outflow = {segment_id: 0 for segment_id in self.topology.segment_ids}
+        self._last_spawn_events = []
+        self._last_skipped_spawn_events = []
+        self._next_av_index = 0
+        self._next_human_index = 0
         self._step_count = 0
         self._time = 0.0
-        self._spawn_controlled_vehicles()
-        return self.get_local_observations(), {"topology_id": self.topology_id, "segment_ids": self.topology.segment_ids}
+        self._configure_demand_spawner()
+        if not self._uses_continuous_demand():
+            self._spawn_controlled_vehicles()
+        else:
+            self.agent_ids = []
+        return self.get_local_observations(), {
+            "topology_id": self.topology_id,
+            "segment_ids": self.topology.segment_ids,
+            "demand": self._demand_state(),
+            "routes": self._route_metadata(),
+        }
 
     def step(
         self,
@@ -83,7 +138,12 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         if self.road is None:
             raise RuntimeError("environment must be reset before step")
 
-        active_agent_ids = list(self._vehicles)
+        self._step_inflow = {segment_id: 0 for segment_id in self.topology.segment_ids}
+        self._step_outflow = {segment_id: 0 for segment_id in self.topology.segment_ids}
+        self._last_spawn_events = []
+        self._last_skipped_spawn_events = []
+
+        active_agent_ids = list(self._av_vehicles)
         normalized_actions = validate_action_mapping(av_actions, expected_agent_ids=active_agent_ids)
         diagnostics: dict[str, list[dict[str, Any]]] = {
             "safety_masked_action": [],
@@ -92,7 +152,7 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             "simulator_blocked_action": [],
         }
         for agent_id, action in normalized_actions.items():
-            vehicle = self._vehicles[agent_id]
+            vehicle = self._av_vehicles[agent_id]
             safety_decision = apply_safety_layer(
                 action,
                 self._safety_states[agent_id],
@@ -125,31 +185,41 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         self._time += float(self.config.get("dt", 1.0))
         self._update_safety_distances()
         self._clear_exited_vehicles()
+        self._spawn_demand_vehicles()
+        self.agent_ids = list(self._av_vehicles)
 
         observations = self.get_local_observations()
-        rewards = {agent_id: self._reward_for_vehicle(vehicle) for agent_id, vehicle in self._vehicles.items()}
-        terminated = any(vehicle.crashed for vehicle in self._vehicles.values())
+        rewards = {agent_id: self._reward_for_vehicle(vehicle) for agent_id, vehicle in self._av_vehicles.items()}
+        terminated = any(vehicle.crashed for vehicle in self._active_vehicles())
         truncated = self._step_count >= int(self.config.get("duration_steps", 120))
         info: InfoDict = {
             "topology_id": self.topology_id,
             "time": self._time,
             "diagnostics": diagnostics,
+            "demand": {
+                "spawned": self._last_spawn_events,
+                "skipped": self._last_skipped_spawn_events,
+            },
         }
         return observations, rewards, terminated, truncated, info
 
     def get_local_observations(self) -> AVObservationMap:
-        return {agent_id: self._observation_for_vehicle(vehicle) for agent_id, vehicle in self._vehicles.items()}
+        return {agent_id: self._observation_for_vehicle(vehicle) for agent_id, vehicle in self._av_vehicles.items()}
 
     def get_global_state(self) -> GlobalState:
         return {
             "time": self._time,
             "topology_id": self.topology_id,
-            "active_vehicle_count": len(self._vehicles),
-            "active_av_count": len(self._vehicles),
+            "active_vehicle_count": len(self._active_vehicles()),
+            "active_av_count": len(self._av_vehicles),
             "completed_vehicle_count": self._completed_vehicle_count,
             "segment_state": self.get_segment_metrics(),
-            "branch_state": {},
-            "demand_state": {},
+            "branch_state": {
+                "per_branch_spawned": dict(self._per_branch_spawned),
+                "per_branch_completed": dict(self._per_branch_completed),
+                "per_branch_skipped_spawn": dict(self._per_branch_skipped_spawn),
+            },
+            "demand_state": self._demand_state(),
         }
 
     def get_segment_metrics(self) -> SegmentMetrics:
@@ -162,8 +232,8 @@ class HighwayTopologyEnv(BaseCTDEEnv):
                 "density": 0.0,
                 "queue_length": 0,
                 "jam_fraction": 0.0,
-                "inflow": 0,
-                "outflow": 0,
+                "inflow": self._step_inflow.get(segment_id, 0),
+                "outflow": self._step_outflow.get(segment_id, 0),
                 "lane_changes_per_av_km": 0.0,
                 "rolling_roadblock_score": 0.0,
                 "all_lane_av_low_speed_occupancy": 0.0,
@@ -171,12 +241,14 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             for segment_id in self.topology.segment_ids
         }
         speeds: dict[str, list[float]] = {segment_id: [] for segment_id in self.topology.segment_ids}
-        for vehicle in self._vehicles.values():
+        active_av_keys = {id(vehicle) for vehicle in self._av_vehicles.values()}
+        for vehicle in self._active_vehicles():
             segment_id = self.topology.segment_for_lane(vehicle.lane_index)
             if segment_id is None:
                 continue
             records[segment_id]["vehicle_count"] += 1
-            records[segment_id]["av_count"] += 1
+            if id(vehicle) in active_av_keys:
+                records[segment_id]["av_count"] += 1
             speeds[segment_id].append(float(vehicle.speed))
         for segment_id, segment_speeds in speeds.items():
             length_km = self.topology.segment_lengths[segment_id] / 1000.0
@@ -193,8 +265,10 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             "topology_id": self.topology_id,
             "steps": self._step_count,
             "time": self._time,
-            "active_vehicle_count": len(self._vehicles),
+            "active_vehicle_count": len(self._active_vehicles()),
+            "active_av_count": len(self._av_vehicles),
             "completed_vehicle_count": self._completed_vehicle_count,
+            **self._demand_state(),
         }
 
     def _spawn_controlled_vehicles(self) -> None:
@@ -211,11 +285,9 @@ class HighwayTopologyEnv(BaseCTDEEnv):
                 longitudinal=longitudinal,
                 speed=float(self.config.get("initial_speed_mps", min(lane.speed_limit or 24.0, 24.0))),
             )
-            vehicle.plan_route_to(destination)
+            vehicle.route = road_route_to_destination(lane_index, destination, self.topology)
             self.road.vehicles.append(vehicle)
-            self._vehicles[agent_id] = vehicle
-            self._safety_states[agent_id] = SafetyState(last_lane_index=vehicle.lane_index)
-            self._target_headways[agent_id] = 1.6
+            self._register_existing_av(agent_id, vehicle, "initial", self.topology.segment_for_lane(lane_index) or "")
 
     def _spawn_lanes_and_destination(self) -> tuple[list[LaneIndex], str]:
         lanes_by_topology: dict[str, tuple[list[LaneIndex], str]] = {
@@ -240,16 +312,30 @@ class HighwayTopologyEnv(BaseCTDEEnv):
     def _clear_exited_vehicles(self) -> None:
         if self.road is None or self.topology_id == "ring":
             return
-        active: dict[str, ControlledVehicle] = {}
-        for agent_id, vehicle in self._vehicles.items():
+        active_av: dict[str, ControlledVehicle] = {}
+        active_human: dict[str, IDMVehicle] = {}
+        active_vehicle_objects: set[int] = set()
+
+        for agent_id, vehicle in self._av_vehicles.items():
             if self._has_exited(vehicle):
-                self._completed_vehicle_count += 1
+                self._record_vehicle_exit(vehicle)
             else:
-                active[agent_id] = vehicle
-        self._vehicles = active
-        self._safety_states = {agent_id: state for agent_id, state in self._safety_states.items() if agent_id in active}
-        self._target_headways = {agent_id: headway for agent_id, headway in self._target_headways.items() if agent_id in active}
-        self.road.vehicles = [vehicle for vehicle in self.road.vehicles if vehicle in self._vehicles.values()]
+                active_av[agent_id] = vehicle
+                active_vehicle_objects.add(id(vehicle))
+        for vehicle_id, vehicle in self._human_vehicles.items():
+            if self._has_exited(vehicle):
+                self._record_vehicle_exit(vehicle)
+            else:
+                active_human[vehicle_id] = vehicle
+                active_vehicle_objects.add(id(vehicle))
+
+        self._av_vehicles = active_av
+        self._human_vehicles = active_human
+        self._safety_states = {agent_id: state for agent_id, state in self._safety_states.items() if agent_id in active_av}
+        self._target_headways = {agent_id: headway for agent_id, headway in self._target_headways.items() if agent_id in active_av}
+        self._vehicle_meta = {vehicle_key: meta for vehicle_key, meta in self._vehicle_meta.items() if vehicle_key in active_vehicle_objects}
+        self.road.vehicles = [vehicle for vehicle in self.road.vehicles if id(vehicle) in active_vehicle_objects]
+        self.agent_ids = list(self._av_vehicles)
 
     def _has_exited(self, vehicle: ControlledVehicle) -> bool:
         if vehicle.lane_index is None:
@@ -306,9 +392,9 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             "local_density_bin": 0,
             "local_mean_speed_bin": 0,
             "local_queue_estimate": 0,
-            "active_vehicle_count_local": len(self._vehicles),
-            "active_av_count_local": len(self._vehicles),
-            "nearby_av_count": max(0, len(self._vehicles) - 1),
+            "active_vehicle_count_local": len(self._active_vehicles()),
+            "active_av_count_local": len(self._av_vehicles),
+            "nearby_av_count": max(0, len(self._av_vehicles) - 1),
             "nearby_av_density": 0.0,
             "nearby_av_mean_speed": 0.0,
             "nearby_av_lane_distribution": {},
@@ -343,8 +429,8 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             local_density_veh_per_km=float(metrics.get("density", 0.0)),
             downstream_congested=False,
             target_lane_exists=target_lane_exists,
-            target_lane_front_gap=float("inf"),
-            target_lane_rear_gap=float("inf"),
+            target_lane_front_gap_m=float("inf"),
+            target_lane_rear_gap_m=float("inf"),
             target_lane_rear_required_decel_mps2=0.0,
             av_mean_speed_mps=float(metrics.get("mean_speed", free_flow_speed)),
             local_mean_speed_mps=float(metrics.get("mean_speed", free_flow_speed)),
@@ -364,16 +450,156 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         return max(0.0, float(vehicle.lane_distance_to(leader)) / max(float(vehicle.speed), 1e-6))
 
     def _agent_id_for_vehicle(self, vehicle: ControlledVehicle) -> str | None:
-        for agent_id, candidate in self._vehicles.items():
+        for agent_id, candidate in self._av_vehicles.items():
             if candidate is vehicle:
                 return agent_id
         return None
 
     def _update_safety_distances(self) -> None:
         dt = float(self.config.get("dt", 1.0))
-        for agent_id, vehicle in self._vehicles.items():
+        for agent_id, vehicle in self._av_vehicles.items():
             state = self._safety_states[agent_id]
             state.distance_since_window_start_m += max(0.0, float(vehicle.speed)) * dt
             if state.distance_since_window_start_m >= 1000.0:
                 state.distance_since_window_start_m = 0.0
                 state.lane_changes_last_km = 0
+
+    def _active_vehicles(self) -> list[ControlledVehicle]:
+        return [*self._av_vehicles.values(), *self._human_vehicles.values()]
+
+    def _road_config(self) -> Mapping[str, Any] | None:
+        topology_config = self.config.get("topology")
+        if isinstance(topology_config, Mapping):
+            return topology_config.get("road", topology_config)
+        road_config = self.config.get("road")
+        return road_config if isinstance(road_config, Mapping) else None
+
+    def _demand_config(self) -> Mapping[str, Any] | None:
+        demand_config = self.config.get("demand")
+        return demand_config if isinstance(demand_config, Mapping) else None
+
+    def _uses_continuous_demand(self) -> bool:
+        return self._demand_spawner is not None and self._demand_profile.enabled and self._route_plan.enabled
+
+    def _configure_demand_spawner(self) -> None:
+        demand_config = self._demand_config()
+        demand_enabled = demand_config is not None and self.topology_id != "ring"
+        self._demand_profile = load_demand_profile(demand_config, enabled=demand_enabled)
+        if self.road is None or not self._demand_profile.enabled or not self._route_plan.enabled:
+            self._demand_spawner = None
+            return
+        self._demand_spawner = DemandSpawner(self._demand_profile, self._route_plan, self.topology, self.road.np_random)
+
+    def _spawn_demand_vehicles(self) -> None:
+        if self.road is None or self._demand_spawner is None:
+            return
+        result = self._demand_spawner.spawn_due(
+            self.road,
+            time_s=self._time,
+            dt_s=float(self.config.get("dt", 1.0)),
+            register_vehicle=self._register_spawned_vehicle,
+        )
+        self._last_spawn_events = result.spawned
+        self._last_skipped_spawn_events = result.skipped
+        for event in result.skipped:
+            branch_id = str(event["branch_id"])
+            self._skipped_spawn_count += 1
+            self._per_branch_skipped_spawn[branch_id] = self._per_branch_skipped_spawn.get(branch_id, 0) + 1
+
+    def _register_spawned_vehicle(
+        self,
+        role: str,
+        branch_id: str,
+        vehicle: ControlledVehicle,
+        branch: BranchRoute,
+    ) -> str:
+        if self.road is None:
+            raise RuntimeError("road is not initialized")
+        if role == "av":
+            vehicle_id = f"av_{self._next_av_index}"
+            self._next_av_index += 1
+            self._av_vehicles[vehicle_id] = vehicle
+            self._safety_states[vehicle_id] = SafetyState(last_lane_index=vehicle.lane_index)
+            self._target_headways[vehicle_id] = 1.6
+            self._spawned_av_count += 1
+        elif role == "human":
+            vehicle_id = f"human_{self._next_human_index}"
+            self._next_human_index += 1
+            self._human_vehicles[vehicle_id] = vehicle  # type: ignore[assignment]
+            self._spawned_human_count += 1
+        else:
+            raise ValueError(f"unsupported vehicle role '{role}'")
+
+        self.road.vehicles.append(vehicle)
+        self._vehicle_meta[id(vehicle)] = VehicleMeta(
+            vehicle_id=vehicle_id,
+            role=role,
+            branch_id=branch_id,
+            entry_segment=branch.entry_segment,
+        )
+        self._spawned_vehicle_count += 1
+        self._per_branch_spawned[branch_id] = self._per_branch_spawned.get(branch_id, 0) + 1
+        self._step_inflow[branch.entry_segment] = self._step_inflow.get(branch.entry_segment, 0) + 1
+        self.agent_ids = list(self._av_vehicles)
+        return vehicle_id
+
+    def _register_existing_av(
+        self,
+        agent_id: str,
+        vehicle: ControlledVehicle,
+        branch_id: str,
+        entry_segment: str,
+    ) -> None:
+        self._av_vehicles[agent_id] = vehicle
+        self._vehicle_meta[id(vehicle)] = VehicleMeta(
+            vehicle_id=agent_id,
+            role="av",
+            branch_id=branch_id,
+            entry_segment=entry_segment,
+        )
+        self._safety_states[agent_id] = SafetyState(last_lane_index=vehicle.lane_index)
+        self._target_headways[agent_id] = 1.6
+        try:
+            self._next_av_index = max(self._next_av_index, int(agent_id.split("_", 1)[1]) + 1)
+        except (IndexError, ValueError):
+            pass
+
+    def _record_vehicle_exit(self, vehicle: ControlledVehicle) -> None:
+        meta = self._vehicle_meta.get(id(vehicle))
+        self._completed_vehicle_count += 1
+        if meta is not None:
+            self._per_branch_completed[meta.branch_id] = self._per_branch_completed.get(meta.branch_id, 0) + 1
+        segment_id = self.topology.segment_for_lane(vehicle.lane_index)
+        if segment_id is not None:
+            self._step_outflow[segment_id] = self._step_outflow.get(segment_id, 0) + 1
+
+    def _demand_state(self) -> dict[str, Any]:
+        return {
+            "enabled": self._uses_continuous_demand(),
+            "profile_id": self._demand_profile.profile_id,
+            "current_vehicles_per_hour": self._demand_profile.vehicles_per_hour_at(self._time),
+            "av_penetration": self._demand_profile.av_penetration,
+            "spawned_vehicle_count": self._spawned_vehicle_count,
+            "spawned_av_count": self._spawned_av_count,
+            "spawned_human_count": self._spawned_human_count,
+            "completed_vehicle_count": self._completed_vehicle_count,
+            "per_branch_spawned": dict(self._per_branch_spawned),
+            "per_branch_completed": dict(self._per_branch_completed),
+            "branch_split": dict(self._demand_profile.branch_split),
+            "skipped_spawn_count": self._skipped_spawn_count,
+            "per_branch_skipped_spawn": dict(self._per_branch_skipped_spawn),
+        }
+
+    def _route_metadata(self) -> dict[str, Any]:
+        return {
+            "enabled": self._route_plan.enabled,
+            "destination": self._route_plan.destination,
+            "branches": {
+                branch.branch_id: {
+                    "entry_edge": branch.entry_edge,
+                    "entry_segment": branch.entry_segment,
+                    "lane_count": branch.lane_count,
+                }
+                for branch in self._route_plan.branches
+            },
+        }

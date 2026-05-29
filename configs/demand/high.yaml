@@ -1,7 +1,7 @@
-id: medium
+id: high
 kind: demand
-description: Medium traffic demand for baseline throughput experiments.
-total_vehicles_per_hour: 1800
+description: High traffic demand for congestion and throughput stress tests.
+total_vehicles_per_hour: 2700
 av_penetration: 0.1
 branch_split:
   main: 1.0
