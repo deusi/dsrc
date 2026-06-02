@@ -70,6 +70,7 @@ def compose_experiment_config(
         "human_model": load_named_config("human_model", refs["human_model"], config_root),
         "training": load_named_config("training", refs["training"], config_root),
         "controller": deepcopy(experiment_cfg.get("controller", {})),
+        "sensing": deepcopy(experiment_cfg.get("sensing", {})),
         "metrics": deepcopy(experiment_cfg.get("metrics", {})),
         "outputs": deepcopy(experiment_cfg.get("outputs", {})),
         "resolved_refs": deepcopy(refs),
@@ -86,4 +87,3 @@ def compose_experiment_config(
         bundle[section] = deep_merge(current_section, overrides)
 
     return bundle
-

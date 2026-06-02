@@ -61,7 +61,7 @@ overrides:
 The composed config bundle should load in this order:
 
 1. referenced family configs from `refs`
-2. experiment-local sections such as `experiment`, `controller`, `metrics`, and `outputs`
+2. experiment-local sections such as `experiment`, `controller`, `sensing`, `metrics`, and `outputs`
 3. `overrides` applied last to the referenced family sections
 
 ## Composed Bundle Shape
@@ -76,7 +76,23 @@ The loader should return one dict with these top-level sections:
 - `controller`
 - `metrics`
 - `outputs`
+- `sensing` (optional)
 - `resolved_refs`
+
+## Optional Sensing Config
+
+The environment may include a top-level `sensing` section. If omitted, deterministic local sensing defaults are used:
+
+```yaml
+sensing:
+  range_m: 150.0
+  latency_s: 0.0
+  position_noise_std: 0.0
+  speed_noise_std: 0.0
+  density_bin_edges_veh_per_km: [12.0, 30.0]
+  mean_speed_bin_edges_mps: [8.0, 18.0]
+  queue_speed_mps: 5.0
+```
 
 ## Repo Ownership
 
@@ -87,4 +103,3 @@ Executable config loading should live in:
 Human-readable config guidance should live in:
 
 - `configs/README.md`
-

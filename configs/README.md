@@ -29,6 +29,19 @@ Standard vehicle roles:
 
 Experiment configs should reference family configs through a `refs` block. The config loader resolves those references and applies experiment overrides last.
 
+Experiment or environment configs may include optional local AV sensing settings. If omitted, deterministic defaults are used:
+
+```yaml
+sensing:
+  range_m: 150.0
+  latency_s: 0.0
+  position_noise_std: 0.0
+  speed_noise_std: 0.0
+  density_bin_edges_veh_per_km: [12.0, 30.0]
+  mean_speed_bin_edges_mps: [8.0, 18.0]
+  queue_speed_mps: 5.0
+```
+
 ## Example Files
 
 - `topology/ring.yaml`
@@ -36,4 +49,3 @@ Experiment configs should reference family configs through a `refs` block. The c
 - `human_models/heterogeneous.yaml`
 - `experiments/exp_ring_wave_damping.yaml`
 - `training/mappo.yaml`
-

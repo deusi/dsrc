@@ -24,7 +24,7 @@ from src.road.highway_imports import ensure_highway_env_importable
 from src.road.segment_graph import TopologySpec
 from src.road.topology_factory import build_topology
 from src.safety import SafetyConstraints, SafetyContext, SafetyState, apply_safety_layer
-from src.safety.etiquette import is_low_speed_uncongested
+from src.sensing import LocalObservationBuilder, SensingConfig, VehicleSnapshot
 from src.vehicles import HumanBehaviorModel, load_human_behavior_model
 
 ensure_highway_env_importable()
@@ -101,6 +101,7 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         self._demand_profile: DemandProfile = load_demand_profile(None, enabled=False)
         self._human_behavior_model: HumanBehaviorModel = load_human_behavior_model(None)
         self._demand_spawner: DemandSpawner | None = None
+        self._sensing = LocalObservationBuilder(SensingConfig.from_config(self.config))
         self._last_step_metrics: dict[str, Any] = {}
         self._step_count = 0
         self._time = 0.0
@@ -150,6 +151,7 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         self._last_skipped_spawn_events = []
         self._next_av_index = 0
         self._next_human_index = 0
+        self._sensing.reset(SensingConfig.from_config(self.config))
         self._last_step_metrics = {}
         self._step_count = 0
         self._time = 0.0
@@ -244,7 +246,20 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         return observations, rewards, terminated, truncated, info
 
     def get_local_observations(self) -> AVObservationMap:
-        return {agent_id: self._observation_for_vehicle(vehicle) for agent_id, vehicle in self._av_vehicles.items()}
+        if self.road is None:
+            return {}
+        return self._sensing.build_all(
+            time_s=self._time,
+            topology=self.topology,
+            snapshots=self._vehicle_snapshots(),
+            current_av_ids=list(self._av_vehicles),
+            safety_states=self._safety_states,
+            target_headways=self._target_headways,
+            target_lanes={agent_id: vehicle.target_lane_index for agent_id, vehicle in self._av_vehicles.items()},
+            segment_metrics=self.get_segment_metrics(),
+            constraints=self._safety_constraints(),
+            rng=self.road.np_random,
+        )
 
     def get_global_state(self) -> GlobalState:
         return {
@@ -370,57 +385,6 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         longitudinal, _ = lane.local_coordinates(vehicle.position)
         return longitudinal >= lane.length - vehicle.LENGTH
 
-    def _observation_for_vehicle(self, vehicle: ControlledVehicle) -> dict[str, Any]:
-        segment_id = self.topology.segment_for_lane(vehicle.lane_index)
-        leader, follower = (None, None) if self.road is None else self.road.neighbour_vehicles(vehicle)
-        lane_id = vehicle.lane_index[2] if vehicle.lane_index is not None else -1
-        agent_id = self._agent_id_for_vehicle(vehicle)
-        state = self._safety_states[agent_id] if agent_id is not None else SafetyState()
-        target_headway = self._target_headways.get(agent_id or "", 1.6)
-        ego_headway = self._headway_s(vehicle, leader)
-        density = self.get_segment_metrics().get(segment_id, {}).get("density", 0.0) if segment_id else 0.0
-        free_flow_speed = self._free_flow_speed_for_vehicle(vehicle)
-        uncongested_low_speed = is_low_speed_uncongested(float(vehicle.speed), free_flow_speed, float(density), self._safety_constraints())
-        return {
-            "is_active": True,
-            "ego_speed": float(vehicle.speed),
-            "ego_acceleration": float(vehicle.action.get("acceleration", 0.0)),
-            "ego_lane": int(lane_id),
-            "ego_headway_s": ego_headway,
-            "target_headway_s": target_headway,
-            "time_since_last_lane_change": (
-                float("inf") if state.last_lane_change_time_s is None else self._time - state.last_lane_change_time_s
-            ),
-            "lane_changes_last_km": state.lane_changes_last_km,
-            "current_segment": segment_id,
-            "distance_to_next_merge": 0.0,
-            "distance_to_downstream_bottleneck": 0.0 if segment_id in self.topology.bottleneck_segments else float("inf"),
-            "leader_gap": float(vehicle.lane_distance_to(leader)) if leader is not None else float("inf"),
-            "leader_relative_speed": float(leader.speed - vehicle.speed) if leader is not None else 0.0,
-            "follower_gap": float(vehicle.lane_distance_to(follower)) if follower is not None else float("inf"),
-            "follower_relative_speed": float(follower.speed - vehicle.speed) if follower is not None else 0.0,
-            "left_lane_front_gap": float("inf"),
-            "left_lane_rear_gap": float("inf"),
-            "right_lane_front_gap": float("inf"),
-            "right_lane_rear_gap": float("inf"),
-            "target_lane_front_gap": float("inf"),
-            "target_lane_rear_gap": float("inf"),
-            "target_lane_rear_required_decel": 0.0,
-            "downstream_congestion_estimate": 0.0,
-            "merge_pressure": 0.0,
-            "segment_target_speed": free_flow_speed,
-            "uncongested_low_speed_flag": uncongested_low_speed,
-            "local_density_bin": 0,
-            "local_mean_speed_bin": 0,
-            "local_queue_estimate": 0,
-            "active_vehicle_count_local": len(self._active_vehicles()),
-            "active_av_count_local": len(self._av_vehicles),
-            "nearby_av_count": max(0, len(self._av_vehicles) - 1),
-            "nearby_av_density": 0.0,
-            "nearby_av_mean_speed": 0.0,
-            "nearby_av_lane_distribution": {},
-        }
-
     @staticmethod
     def _reward_for_vehicle(vehicle: ControlledVehicle) -> float:
         return 0.0 if vehicle.crashed else float(vehicle.speed)
@@ -437,24 +401,39 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         )
 
     def _safety_context_for_vehicle(self, vehicle: ControlledVehicle) -> SafetyContext:
+        if self.road is None:
+            raise RuntimeError("environment must be reset before safety context is requested")
         segment_id = self.topology.segment_for_lane(vehicle.lane_index)
         metrics = self.get_segment_metrics().get(segment_id, {}) if segment_id else {}
         free_flow_speed = self._free_flow_speed_for_vehicle(vehicle)
-        target_lane_exists = True
-        if vehicle.target_lane_index is not None:
-            target_lane_exists = bool(self.road and vehicle.target_lane_index in self.road.network.lanes_dict())
+        agent_id = self._agent_id_for_vehicle(vehicle)
+        gap_context = None
+        if agent_id is not None:
+            gap_context = self._sensing.lane_gap_context(
+                ego_id=agent_id,
+                time_s=self._time,
+                topology=self.topology,
+                snapshots=self._vehicle_snapshots(),
+                target_lane=vehicle.target_lane_index,
+                rng=self.road.np_random,
+            )
         return SafetyContext(
             time_s=self._time,
             free_flow_speed_mps=free_flow_speed,
             min_contextual_speed_mps=float(self.config.get("min_contextual_speed_mps", 12.0)),
-            local_density_veh_per_km=float(metrics.get("density", 0.0)),
+            local_density_veh_per_km=(
+                gap_context.local_density_veh_per_km if gap_context is not None else float(metrics.get("density", 0.0))
+            ),
             downstream_congested=False,
-            target_lane_exists=target_lane_exists,
-            target_lane_front_gap_m=float("inf"),
-            target_lane_rear_gap_m=float("inf"),
-            target_lane_rear_required_decel_mps2=0.0,
-            av_mean_speed_mps=float(metrics.get("mean_speed", free_flow_speed)),
-            local_mean_speed_mps=float(metrics.get("mean_speed", free_flow_speed)),
+            target_lane_exists=gap_context.target_lane_exists if gap_context is not None else True,
+            target_lane_front_gap_m=gap_context.target_lane_front_gap_m if gap_context is not None else float("inf"),
+            target_lane_rear_gap_m=gap_context.target_lane_rear_gap_m if gap_context is not None else float("inf"),
+            target_lane_rear_required_decel_mps2=(
+                gap_context.target_lane_rear_required_decel_mps2 if gap_context is not None else 0.0
+            ),
+            all_lanes_av_occupied=gap_context.all_lanes_av_occupied if gap_context is not None else False,
+            av_mean_speed_mps=gap_context.nearby_av_mean_speed_mps if gap_context is not None else float(metrics.get("mean_speed", free_flow_speed)),
+            local_mean_speed_mps=gap_context.local_mean_speed_mps if gap_context is not None else float(metrics.get("mean_speed", free_flow_speed)),
             near_merge=bool(segment_id and ("merge" in segment_id or segment_id in self.topology.bottleneck_segments)),
         )
 
@@ -475,6 +454,41 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             if candidate is vehicle:
                 return agent_id
         return None
+
+    def _vehicle_snapshots(self) -> list[VehicleSnapshot]:
+        if self.road is None:
+            return []
+        snapshots: list[VehicleSnapshot] = []
+        for vehicle in self._active_vehicles():
+            meta = self._vehicle_meta.get(id(vehicle))
+            if meta is None:
+                continue
+            runtime = self._vehicle_runtime.get(meta.vehicle_id)
+            lane_index = vehicle.lane_index
+            segment_id = self.topology.segment_for_lane(lane_index)
+            lane_id = int(lane_index[2]) if lane_index is not None else -1
+            longitudinal = 0.0
+            if lane_index is not None:
+                lane = self.road.network.get_lane(lane_index)
+                longitudinal = float(lane.local_coordinates(vehicle.position)[0])
+            snapshots.append(
+                VehicleSnapshot(
+                    vehicle_id=meta.vehicle_id,
+                    role=meta.role,
+                    segment_id=segment_id,
+                    lane_index=lane_index,
+                    lane_id=lane_id,
+                    position=(float(vehicle.position[0]), float(vehicle.position[1])),
+                    longitudinal_m=longitudinal,
+                    speed_mps=float(vehicle.speed),
+                    acceleration_mps2=float(
+                        runtime.acceleration_mps2 if runtime is not None else vehicle.action.get("acceleration", 0.0)
+                    ),
+                    free_flow_speed_mps=self._free_flow_speed_for_vehicle(vehicle),
+                    crashed=bool(vehicle.crashed),
+                )
+            )
+        return snapshots
 
     def _update_safety_distances(self) -> None:
         dt = float(self.config.get("dt", 1.0))

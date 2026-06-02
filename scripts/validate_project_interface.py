@@ -64,6 +64,8 @@ def validate_topology_ladder_if_available() -> None:
     obs, info = env.reset(seed=7)
     assert info["topology_id"] == "ring"
     assert set(obs) == {"av_0", "av_1"}
+    assert "sensor" in obs["av_0"]
+    assert "cooperation" in obs["av_0"]
     actions = {agent_id: sample_v2_action() for agent_id in obs}
     next_obs, rewards, terminated, truncated, step_info = env.step(actions)
     assert set(next_obs) == set(rewards)
@@ -72,6 +74,15 @@ def validate_topology_ladder_if_available() -> None:
     assert step_info["topology_id"] == "ring"
     assert env.get_global_state()["topology_id"] == "ring"
     assert set(env.get_segment_metrics()) == {"ring_main"}
+
+    fallback_env = HighwayTopologyEnv("ring", {"controlled_vehicles": 1, "duration_steps": 1, "sensing": {"range_m": 1.0}})
+    fallback_obs, _ = fallback_env.reset(seed=8)
+    only_obs = fallback_obs["av_0"]
+    assert only_obs["nearby_av_count"] == 0
+    assert only_obs["nearby_av_density"] == 0.0
+    assert only_obs["nearby_av_lane_distribution"] == {}
+    assert only_obs["nearby_av_mean_speed"] == only_obs["segment_target_speed"]
+    assert only_obs["cooperation"]["merge_pressure"] == 0.0
 
 
 def main() -> int:
@@ -133,6 +144,8 @@ def main() -> int:
     assert bundle["outputs"]["episode_summary"].endswith("episode_summary.json")
     assert bundle["outputs"]["step_metrics"].endswith("step_metrics.csv")
     assert bundle["outputs"]["segment_metrics"].endswith("segment_metrics.csv")
+    assert bundle["sensing"]["range_m"] == 150.0
+    assert bundle["sensing"]["latency_s"] == 0.0
 
     controller = DummyController()
     local_obs = {

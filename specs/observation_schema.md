@@ -58,6 +58,23 @@ Optional realism fields should stay under a nested `sensor` block rather than ch
 - `sensor.position_noise_std`
 - `sensor.speed_noise_std`
 
+Default sensing configuration:
+
+```yaml
+sensing:
+  range_m: 150.0
+  latency_s: 0.0
+  position_noise_std: 0.0
+  speed_noise_std: 0.0
+  density_bin_edges_veh_per_km: [12.0, 30.0]
+  mean_speed_bin_edges_mps: [8.0, 18.0]
+  queue_speed_mps: 5.0
+```
+
+Local counts and aggregates exclude the ego AV. `active_vehicle_count_local` counts all sensed non-ego vehicles within `range_m`; `active_av_count_local` counts only sensed non-ego AVs. Density bins are computed from `count / (2 * range_m / 1000)`. Mean speed bins use the mean speed of sensed vehicles, falling back to ego speed if no vehicles are sensed. `local_queue_estimate` counts sensed vehicles below `queue_speed_mps`.
+
+When `latency_s > 0`, observations should be built from the newest stored sensing snapshot at least `latency_s` old. If the buffer is not warm at episode start, use the oldest available snapshot. Active AV identifiers still come from the current environment state; if an AV is no longer present in the delayed snapshot, omit it.
+
 Optional cooperative aggregate fields should stay under a nested `cooperation` block:
 
 - `cooperation.segment_target_speed`
@@ -67,6 +84,16 @@ Optional cooperative aggregate fields should stay under a nested `cooperation` b
 The v2 cooperation contract exposes only aggregate traffic-state information. It should not expose individual neighboring AV identities, direct V2V messages, AV-to-lane assignments, or coordinated lane-occupation plans.
 
 If `nearby_av_count == 0`, aggregate cooperation fields should use neutral fallback values and the policy must still be able to operate as an individual local controller.
+
+Neutral fallback values:
+
+- `nearby_av_count: 0`
+- `nearby_av_density: 0.0`
+- `nearby_av_mean_speed: free_flow_speed`
+- `nearby_av_lane_distribution: {}`
+- `cooperation.segment_target_speed: free_flow_speed`
+- `cooperation.merge_pressure: 0.0`
+- `cooperation.downstream_congestion_estimate: 0.0`
 
 Allowed communication/aggregation:
 

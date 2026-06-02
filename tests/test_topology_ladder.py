@@ -72,16 +72,20 @@ def test_highway_topology_env_smoke(topology_id: str) -> None:
     obs, info = env.reset(seed=7)
     assert info["topology_id"] == topology_id
     assert set(obs) == {"av_0", "av_1"}
+    for local_obs in obs.values():
+        assert "sensor" in local_obs
+        assert "cooperation" in local_obs
+        assert local_obs["is_active"] is True
     assert env.get_global_state()["topology_id"] == topology_id
     assert set(env.get_segment_metrics()) == set(EXPECTED_SEGMENTS[topology_id])
 
     actions = {agent_id: safe_action() for agent_id in obs}
     next_obs, rewards, terminated, truncated, step_info = env.step(actions)
     assert set(next_obs) == set(rewards)
+    assert set(next_obs).issubset(set(env.agent_ids))
     assert isinstance(terminated, bool)
     assert isinstance(truncated, bool)
     assert step_info["topology_id"] == topology_id
 
     with pytest.raises(ValueError):
         env.step({"av_inactive": safe_action()})
-
