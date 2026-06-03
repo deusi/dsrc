@@ -42,6 +42,8 @@ sensing:
   queue_speed_mps: 5.0
 ```
 
+Controller configs may set `controller.safety_mode`. Use `integrated_rl` for the DSRC safety/physical-control layer and `simulator_default` for AV baselines that should use simulator/human-like safety behavior instead.
+
 ## Example Files
 
 - `topology/ring.yaml`

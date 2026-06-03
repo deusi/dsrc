@@ -89,7 +89,10 @@ When an action is blocked, masked, or modified, the environment `info` payload s
 - `safety_masked_action`
 - `etiquette_blocked_action`
 - `follower_disruption_blocked`
+- `external_safety_override`
 - `simulator_blocked_action`
+
+The full DSRC safety, etiquette, and physical-control guardrail is intended for controllers configured with `safety_mode: integrated_rl`. Baseline AVs may use `safety_mode: simulator_default` to keep simulator/human-like safety behavior while still being counted as AVs for penetration and metrics.
 
 ## Action Mapping
 

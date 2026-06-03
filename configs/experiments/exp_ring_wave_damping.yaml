@@ -13,6 +13,7 @@ controller:
   family: rl
   name: mappo
   requires_global_state: true
+  safety_mode: integrated_rl
 sensing:
   range_m: 150.0
   latency_s: 0.0

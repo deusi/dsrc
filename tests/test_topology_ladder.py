@@ -89,3 +89,40 @@ def test_highway_topology_env_smoke(topology_id: str) -> None:
 
     with pytest.raises(ValueError):
         env.step({"av_inactive": safe_action()})
+
+
+def test_integrated_rl_safety_mode_bounds_av_acceleration() -> None:
+    env = HighwayTopologyEnv(
+        "ring",
+        {
+            "controlled_vehicles": 1,
+            "duration_steps": 2,
+            "initial_speed_mps": 5.0,
+            "controller": {"safety_mode": "integrated_rl"},
+            "safety": {"max_accel_mps2": 0.25},
+        },
+    )
+    obs, _ = env.reset(seed=17)
+    _, _, _, _, _ = env.step({agent_id: safe_action() | {"desired_speed_bin": "fast"} for agent_id in obs})
+
+    acceleration = env._active_vehicle_records()[0]["acceleration"]
+    assert acceleration <= 0.25 + 1e-9
+
+
+def test_simulator_default_safety_mode_skips_dsrc_penalties_for_baseline_avs() -> None:
+    env = HighwayTopologyEnv(
+        "ring",
+        {
+            "controlled_vehicles": 1,
+            "duration_steps": 2,
+            "initial_speed_mps": 5.0,
+            "controller": {"safety_mode": "simulator_default"},
+            "safety": {"max_accel_mps2": 0.01},
+        },
+    )
+    obs, _ = env.reset(seed=17)
+    _, _, _, _, info = env.step({agent_id: safe_action() | {"desired_speed_bin": "fast"} for agent_id in obs})
+
+    assert info["safety"]["mode"] == "simulator_default"
+    assert info["safety"]["penalties"] == {}
+    assert info["diagnostics"]["external_safety_override"] == []

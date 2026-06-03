@@ -59,9 +59,15 @@ class VehicleSnapshot:
 
 @dataclass(frozen=True)
 class LaneGapContext:
+    leader_gap_m: float
+    leader_relative_speed_mps: float
+    follower_gap_m: float
+    follower_relative_speed_mps: float
     target_lane_exists: bool
     target_lane_front_gap_m: float
+    target_lane_front_relative_speed_mps: float
     target_lane_rear_gap_m: float
+    target_lane_rear_relative_speed_mps: float
     target_lane_rear_required_decel_mps2: float
     local_vehicle_count: int
     local_av_count: int
@@ -277,6 +283,7 @@ class LocalObservationBuilder:
         by_id = {snapshot.vehicle_id: snapshot for snapshot in snapshots}
         ego = by_id[ego_id]
         measured = [self._measure_neighbor(ego, neighbor, rng) for neighbor in self._sensed_neighbors(ego, snapshots)]
+        same_lane = self._lane_gaps(ego, measured, ego.lane_index)
         target_lane_exists = target_lane is not None and target_lane in topology.road_network.lanes_dict()
         target_gaps = self._lane_gaps(ego, measured, target_lane if target_lane_exists else None)
         local_av = [neighbor for neighbor in measured if neighbor.snapshot.role == "av"]
@@ -284,9 +291,15 @@ class LocalObservationBuilder:
         local_mean_speed = _mean(local_speeds) if local_speeds else ego.speed_mps
         nearby_av_mean_speed = _mean([neighbor.speed_mps for neighbor in local_av]) if local_av else ego.free_flow_speed_mps
         return LaneGapContext(
+            leader_gap_m=same_lane.front_gap_m,
+            leader_relative_speed_mps=same_lane.front_relative_speed_mps,
+            follower_gap_m=same_lane.rear_gap_m,
+            follower_relative_speed_mps=same_lane.rear_relative_speed_mps,
             target_lane_exists=target_lane_exists,
             target_lane_front_gap_m=target_gaps.front_gap_m,
+            target_lane_front_relative_speed_mps=target_gaps.front_relative_speed_mps,
             target_lane_rear_gap_m=target_gaps.rear_gap_m,
+            target_lane_rear_relative_speed_mps=target_gaps.rear_relative_speed_mps,
             target_lane_rear_required_decel_mps2=self._required_rear_decel(ego, target_gaps.rear_neighbor, target_gaps.rear_gap_m),
             local_vehicle_count=len(measured),
             local_av_count=len(local_av),

@@ -11,6 +11,7 @@ from src.demand.route_sampler import RoutePlan, road_route_to_destination
 from src.envs.base_ctde_env import (
     AVActionMap,
     AVObservationMap,
+    AVAction,
     EpisodeSummary,
     GlobalState,
     InfoDict,
@@ -18,7 +19,7 @@ from src.envs.base_ctde_env import (
     SegmentMetrics,
 )
 from src.envs.base_ctde_env import BaseCTDEEnv
-from src.envs.wrappers import default_agent_ids, validate_action_mapping
+from src.envs.wrappers import decode_speed_bin, default_agent_ids, lane_preference_to_action, validate_action_mapping
 from src.metrics import MetricThresholds, compute_segment_metrics, compute_step_metrics, metric_thresholds_from_config
 from src.road.highway_imports import ensure_highway_env_importable
 from src.road.segment_graph import TopologySpec
@@ -187,37 +188,41 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             "safety_masked_action": [],
             "etiquette_blocked_action": [],
             "follower_disruption_blocked": [],
+            "external_safety_override": [],
             "simulator_blocked_action": [],
         }
+        physical_accelerations: dict[str, float] = {}
+        safety_penalties: dict[str, dict[str, float]] = {}
         for agent_id, action in normalized_actions.items():
             vehicle = self._av_vehicles[agent_id]
-            safety_decision = apply_safety_layer(
-                action,
-                self._safety_states[agent_id],
-                self._safety_context_for_vehicle(vehicle),
-                self._safety_constraints(),
-                agent_id=agent_id,
-            )
-            for key, events in safety_decision.diagnostics.items():
-                diagnostics.setdefault(key, []).extend(events)
-            vehicle.target_speed = np.clip(
-                safety_decision.target_speed_mps,
-                float(self.config.get("min_speed_mps", 0.0)),
-                float(self.config.get("max_speed_mps", 40.0)),
-            )
-            self._target_headways[agent_id] = safety_decision.target_headway_s
-            if self.topology.supports_lane_change and safety_decision.lane_action is not None:
-                before = vehicle.target_lane_index
-                vehicle.act(safety_decision.lane_action)
-                if vehicle.target_lane_index == before:
-                    diagnostics["simulator_blocked_action"].append({"agent_id": agent_id, "lane_action": safety_decision.lane_action})
-                else:
-                    state = self._safety_states[agent_id]
-                    state.last_lane_change_time_s = self._time
-                    state.lane_changes_last_km += 1
-                    state.last_lane_index = vehicle.target_lane_index
+            if self._uses_integrated_safety():
+                safety_decision = apply_safety_layer(
+                    action,
+                    self._safety_states[agent_id],
+                    self._safety_context_for_vehicle(vehicle),
+                    self._safety_constraints(),
+                    agent_id=agent_id,
+                )
+                for key, events in safety_decision.diagnostics.items():
+                    diagnostics.setdefault(key, []).extend(events)
+                safety_penalties[agent_id] = dict(safety_decision.penalty_terms)
+                vehicle.target_speed = np.clip(
+                    safety_decision.target_speed_mps,
+                    float(self.config.get("min_speed_mps", 0.0)),
+                    float(self.config.get("max_speed_mps", 40.0)),
+                )
+                physical_accelerations[agent_id] = safety_decision.acceleration_mps2
+                self._target_headways[agent_id] = safety_decision.target_headway_s
+                if self.topology.supports_lane_change and safety_decision.lane_action is not None:
+                    self._apply_lane_action(agent_id, vehicle, safety_decision.lane_action, diagnostics)
+            else:
+                self._apply_simulator_default_av_action(agent_id, vehicle, action, diagnostics)
 
         self.road.act()
+        for agent_id, acceleration in physical_accelerations.items():
+            vehicle = self._av_vehicles.get(agent_id)
+            if vehicle is not None:
+                vehicle.action["acceleration"] = float(acceleration)
         self.road.step(float(self.config.get("dt", 1.0)))
         self._step_count += 1
         self._time += float(self.config.get("dt", 1.0))
@@ -238,6 +243,10 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             "time": self._time,
             "diagnostics": diagnostics,
             "metrics": dict(self._last_step_metrics),
+            "safety": {
+                "mode": self._safety_mode(),
+                "penalties": safety_penalties,
+            },
             "demand": {
                 "spawned": self._last_spawn_events,
                 "skipped": self._last_skipped_spawn_events,
@@ -398,7 +407,65 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             max_lane_changes_per_km=float(cfg.get("max_lane_changes_per_km", 2.0)),
             max_follower_braking_mps2=float(cfg.get("max_follower_braking_mps2", 2.5)),
             comfortable_decel_mps2=float(cfg.get("comfortable_decel_mps2", 3.0)),
+            max_accel_mps2=float(cfg.get("max_accel_mps2", 2.0)),
+            max_decel_mps2=float(cfg.get("max_decel_mps2", 3.0)),
+            emergency_decel_mps2=float(cfg.get("emergency_decel_mps2", 6.0)),
+            min_front_gap_m=float(cfg.get("min_front_gap_m", 5.0)),
+            min_rear_gap_m=float(cfg.get("min_rear_gap_m", 5.0)),
+            min_forward_ttc_s=float(cfg.get("min_forward_ttc_s", 2.0)),
+            min_lane_change_ttc_s=float(cfg.get("min_lane_change_ttc_s", 2.5)),
+            speed_control_kp=float(cfg.get("speed_control_kp", 0.6)),
         )
+
+    def _safety_mode(self) -> str:
+        controller_cfg = self.config.get("controller", {})
+        if isinstance(controller_cfg, Mapping) and "safety_mode" in controller_cfg:
+            return str(controller_cfg["safety_mode"])
+        safety_cfg = self.config.get("safety", {})
+        if isinstance(safety_cfg, Mapping) and "mode" in safety_cfg:
+            return str(safety_cfg["mode"])
+        return "integrated_rl"
+
+    def _uses_integrated_safety(self) -> bool:
+        return self._safety_mode() == "integrated_rl"
+
+    def _apply_lane_action(
+        self,
+        agent_id: str,
+        vehicle: ControlledVehicle,
+        lane_action: str,
+        diagnostics: dict[str, list[dict[str, Any]]],
+    ) -> None:
+        before = vehicle.target_lane_index
+        vehicle.act(lane_action)
+        if vehicle.target_lane_index == before:
+            diagnostics["simulator_blocked_action"].append({"agent_id": agent_id, "lane_action": lane_action})
+        else:
+            state = self._safety_states[agent_id]
+            state.last_lane_change_time_s = self._time
+            state.lane_changes_last_km += 1
+            state.last_lane_index = vehicle.target_lane_index
+
+    def _apply_simulator_default_av_action(
+        self,
+        agent_id: str,
+        vehicle: ControlledVehicle,
+        action: AVAction,
+        diagnostics: dict[str, list[dict[str, Any]]],
+    ) -> None:
+        vehicle.target_speed = np.clip(
+            decode_speed_bin(
+                action["desired_speed_bin"],
+                free_flow_speed_mps=self._free_flow_speed_for_vehicle(vehicle),
+                min_contextual_speed_mps=float(self.config.get("min_contextual_speed_mps", 12.0)),
+            ),
+            float(self.config.get("min_speed_mps", 0.0)),
+            float(self.config.get("max_speed_mps", 40.0)),
+        )
+        self._target_headways[agent_id] = self._target_headways.get(agent_id, 1.6)
+        lane_action = None if action["merge_mode"] == "hold_lane" else lane_preference_to_action(action["lane_preference"])
+        if self.topology.supports_lane_change and lane_action is not None:
+            self._apply_lane_action(agent_id, vehicle, lane_action, diagnostics)
 
     def _safety_context_for_vehicle(self, vehicle: ControlledVehicle) -> SafetyContext:
         if self.road is None:
@@ -419,15 +486,26 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             )
         return SafetyContext(
             time_s=self._time,
+            ego_speed_mps=float(vehicle.speed),
             free_flow_speed_mps=free_flow_speed,
             min_contextual_speed_mps=float(self.config.get("min_contextual_speed_mps", 12.0)),
             local_density_veh_per_km=(
                 gap_context.local_density_veh_per_km if gap_context is not None else float(metrics.get("density", 0.0))
             ),
             downstream_congested=False,
+            leader_gap_m=gap_context.leader_gap_m if gap_context is not None else float("inf"),
+            leader_relative_speed_mps=gap_context.leader_relative_speed_mps if gap_context is not None else 0.0,
+            follower_gap_m=gap_context.follower_gap_m if gap_context is not None else float("inf"),
+            follower_relative_speed_mps=gap_context.follower_relative_speed_mps if gap_context is not None else 0.0,
             target_lane_exists=gap_context.target_lane_exists if gap_context is not None else True,
             target_lane_front_gap_m=gap_context.target_lane_front_gap_m if gap_context is not None else float("inf"),
+            target_lane_front_relative_speed_mps=(
+                gap_context.target_lane_front_relative_speed_mps if gap_context is not None else 0.0
+            ),
             target_lane_rear_gap_m=gap_context.target_lane_rear_gap_m if gap_context is not None else float("inf"),
+            target_lane_rear_relative_speed_mps=(
+                gap_context.target_lane_rear_relative_speed_mps if gap_context is not None else 0.0
+            ),
             target_lane_rear_required_decel_mps2=(
                 gap_context.target_lane_rear_required_decel_mps2 if gap_context is not None else 0.0
             ),

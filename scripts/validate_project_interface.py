@@ -146,6 +146,7 @@ def main() -> int:
     assert bundle["outputs"]["segment_metrics"].endswith("segment_metrics.csv")
     assert bundle["sensing"]["range_m"] == 150.0
     assert bundle["sensing"]["latency_s"] == 0.0
+    assert bundle["controller"]["safety_mode"] == "integrated_rl"
 
     controller = DummyController()
     local_obs = {

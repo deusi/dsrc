@@ -94,6 +94,16 @@ sensing:
   queue_speed_mps: 5.0
 ```
 
+## Controller Safety Mode
+
+Controller configs may set `controller.safety_mode`:
+
+- `integrated_rl`: apply DSRC safety masks, penalties, bounded physical control, and emergency overrides.
+- `simulator_default`: use simulator/human-like vehicle safety behavior for baselines while preserving AV role accounting.
+- `external_filter`: reserved for future non-CTDE filters.
+
+If omitted, `HighwayTopologyEnv` defaults to `integrated_rl` for backward compatibility with the CTDE-focused task sequence.
+
 ## Repo Ownership
 
 Executable config loading should live in:
