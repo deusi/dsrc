@@ -16,13 +16,13 @@ The main hypothesis should be:
 
 This connects several ideas:
 
-1. **Dynamic speed limits** are the infrastructure version.
+1. **Local density and speed advisories** are the interpretable non-learning version.
 2. **Self-regulating AVs** are the infrastructure-free physical realization.
 3. **CTDE RL** learns when and where AVs should harmonize speed, increase headway, hold lanes, or create merge gaps.
 
 > AVs act as mobile actuators that implement traffic-control policies from inside the flow.
 
-The v2 deployed cooperation model should use aggregate traffic-state context, not identity-level V2V messages or joint lane-occupation plans. Each AV may observe nearby AV count, density, mean speed, queue estimates, downstream congestion estimates, segment target speed, and merge pressure. If no AV is nearby, the policy must fall back to individual local operation.
+The v2 deployed cooperation model should use only aggregate traffic-state context available in each AV's public local observation, not infrastructure sensing, identity-level V2V messages, runner-aggregated fleet state, or joint lane-occupation plans. Each AV may observe nearby AV count, density, mean speed, queue estimates, downstream congestion estimates, segment target speed, and merge pressure as local observation fields. If no AV is nearby, the policy must fall back to individual local operation.
 
 ---
 
@@ -320,7 +320,7 @@ dsrc/
       safety_layer.py
 
     sensing/
-      local_sensor.py
+    local_sensor.py
       noise_models.py
       latency_buffer.py
       observation_encoder.py
@@ -463,66 +463,66 @@ This should be strong on ring and straight highway, weaker on merge/tree where h
 
 ---
 
-## B5. Dynamic speed limit: infrastructure oracle
+## B5. Dynamic speed limit: local AV speed advisory
 
-This is the infrastructure-based baseline.
+This is an infrastructure-free approximation of a dynamic speed limit.
 
-A global controller observes segment density/speed and assigns each segment a target speed limit.
+Each AV uses only its own local observation to choose a temporary speed advisory for itself.
 
 ```text
-segment density/speed -> segment speed limit
+local density / queue estimate -> local AV speed advisory
 ```
 
-All vehicles obey it, or obey with a compliance probability.
+Only the AV acts on the advisory. Human vehicles are affected only through ordinary car-following dynamics.
 
 Purpose:
 
 ```text
-upper bound for infrastructure-based speed control
+interpretable local congestion metering
 ```
 
 This baseline answers:
 
-> What if we had perfect infrastructure control over segment speed limits?
+> How fast should an AV go given locally sensed congestion?
 
 ---
 
 ## B6. AV-mediated speed harmonization
 
-This is the more interesting version for your project.
+This is the flow-smoothing version of local AV speed control.
 
-The same dynamic speed limit controller computes desired segment speeds, but **only AVs implement them as smooth compliance targets**.
+Each AV smooths relative to nearby traffic speed, leader speed, and local flow using only its public local observation.
 
 ```text
-segment speed target exists
-only AVs receive/realize the target smoothly
+local traffic speed estimate exists
+only the observing AV realizes the target smoothly
 human vehicles are influenced physically through car-following
 humans may pass if safe
 AVs do not change lanes solely to cover all lanes
-AVs do not slow below target by more than a small tolerance
+AVs do not slow below local traffic-control targets by more than a small tolerance
 ```
 
 Purpose:
 
 ```text
-tests whether sparse AVs can physically realize segment-level speed control
+tests whether sparse AVs can damp local speed mismatch and waves
 ```
 
 This is probably one of your strongest baselines/contributions. You can say:
 
-> Dynamic speed limits require infrastructure; sparse AVs can approximate their effect by acting as moving compliant vehicles, not roadblocks.
+> Sparse AVs can approximate speed-harmonization effects by acting as moving compliant vehicles, not roadblocks.
 
 Compare:
 
 ```text
-infrastructure DSL with 100% compliance
-AV-mediated DSL with 5%, 10%, 20% AV penetration
+local density advisory with 5%, 10%, 20% AV penetration
+local flow harmonization with 5%, 10%, 20% AV penetration
 learned CTDE AV policy
 ```
 
 ---
 
-## B7. Backpressure-style control
+## B7. Local backpressure-style control
 
 Classic backpressure idea:
 
@@ -532,7 +532,7 @@ pressure(edge) = upstream queue - downstream queue
 
 At a merge, if one branch has high pressure and downstream capacity exists, that branch should be released more aggressively. If downstream congestion is high, upstream branches should be slowed.
 
-For highways, implement backpressure not as a traffic light but as **speed/gap regulation**:
+For highways, implement pressure-inspired behavior not as a traffic light or infrastructure controller but as **local AV speed/gap regulation**:
 
 ```text
 high upstream pressure + low downstream congestion:
@@ -548,18 +548,8 @@ merge imbalance:
 Purpose:
 
 ```text
-network-control baseline
-tests queue-aware regulation
-```
-
-Variants:
-
-```text
-B6a: infrastructure backpressure
-     segment-level controller directly imposes speed/metering decisions
-
-B6b: AV-mediated backpressure
-     only AVs implement the recommended damping/gap creation
+local network-pressure baseline
+tests queue-aware regulation from each AV's observation
 ```
 
 This is especially important for the inverted tree.
@@ -574,6 +564,7 @@ Simple rule:
 AV slows down when local density is high or leader speed variance is high
 AV maintains larger headway near bottlenecks
 AV avoids unnecessary lane changes
+AV uses only local observation and local aggregate cooperation fields
 ```
 
 Purpose:
@@ -1063,7 +1054,7 @@ python scripts/run_baseline.py --controller density_lookup --topology ring
 
 ### 7.5 Dynamic speed limit
 
-Global segment density to segment target speed.
+Local density and queue estimate to per-AV speed advisory. This is not an infrastructure speed-limit controller.
 
 ```bash
 python scripts/run_baseline.py --controller dynamic_speed_limit --topology straight_multilane
@@ -1071,7 +1062,7 @@ python scripts/run_baseline.py --controller dynamic_speed_limit --topology strai
 
 ### 7.6 AV-mediated speed harmonization
 
-Same segment targets, but only AVs implement them smoothly as compliant vehicles.
+Local flow-matching and speed-mismatch damping from each AV's own observation.
 
 ```bash
 python scripts/run_baseline.py --controller av_mediated_speed_harmonization --topology straight_multilane
@@ -1079,18 +1070,18 @@ python scripts/run_baseline.py --controller av_mediated_speed_harmonization --to
 
 ### 7.7 Backpressure
 
-Queue-pressure control at merge/tree nodes.
+Local pressure-inspired speed/headway metering near merge/tree bottlenecks.
 
 ```bash
 python scripts/run_baseline.py --controller backpressure --topology inverted_tree
 ```
 
-### 7.8 AV-mediated backpressure
+### 7.8 Cooperative smoothing
 
-Only AVs implement backpressure suggestions.
+Hand-designed local smoothing controller that uses local aggregate fields without global state.
 
 ```bash
-python scripts/run_baseline.py --controller av_mediated_backpressure --topology inverted_tree
+python scripts/run_baseline.py --controller cooperative_smoothing --topology inverted_tree
 ```
 
 Deliverable:
@@ -1244,7 +1235,7 @@ density_lookup
 dynamic_speed_limit
 av_mediated_speed_harmonization
 backpressure
-av_mediated_backpressure
+cooperative_smoothing
 CTDE_speed_only
 CTDE_lane_only
 CTDE_speed_plus_lane
@@ -1371,4 +1362,4 @@ rolling-roadblock score
 
 The final story should be:
 
-> Classical traffic-control baselines such as dynamic speed limits and backpressure require infrastructure-level actuation. We ask whether a sparse fleet of autonomous vehicles can realize similar network-control effects from within the traffic stream without obstruction. Using centralized training but decentralized execution, AVs learn local desired-speed and desired-headway targets with conservative lane preferences. A hard safety and etiquette layer prevents lane hogging, oscillatory lane changes, follower disruption, and rolling-roadblock behavior. Experiments across ring, straight highway, merge, and inverted-tree topologies show when local AV control can damp disturbances, create merge gaps, reduce spillback, and improve fairness under varying demand, human driving behavior, and sensing noise.
+> We ask whether a sparse fleet of autonomous vehicles can realize network-control effects from within the traffic stream without infrastructure sensing or obstruction. Using centralized training but decentralized execution, AVs learn local desired-speed and desired-headway targets with conservative lane preferences. A hard safety and etiquette layer prevents lane hogging, oscillatory lane changes, follower disruption, and rolling-roadblock behavior. Experiments across ring, straight highway, merge, and inverted-tree topologies show when local AV control can damp disturbances, create merge gaps, reduce spillback, and improve fairness under varying demand, human driving behavior, and sensing noise.

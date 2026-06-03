@@ -104,6 +104,8 @@ Allowed communication/aggregation:
 - segment-level target speed
 - merge pressure
 
+For non-learning baselines, these fields are available only as part of each AV's own public local observation. Baseline controllers must not reconstruct hidden segment state from environment internals, roadside detector/oracle sensing, global state, or runner-side aggregation across AVs.
+
 Disallowed communication/aggregation:
 
 - joint lane occupation plans

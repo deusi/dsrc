@@ -27,7 +27,7 @@ Approach these tasks sequentially. Each item is intentionally broad enough to be
    Convert speed/headway bins and conservative lane preferences into bounded, safe vehicle behavior with acceleration limits, headway control, lane-change dwell, safe front/rear gap checks, follower-disruption blocks, low-speed-uncongested blocks, and emergency overrides. Integrate safety-aware masking/penalties with CTDE controllers, and keep a separate external safety path for baselines/RVs/human drivers where needed.
 
 9. **Build the baseline ladder**
-   Add human-only, random AVs, selfish AVs, density lookup, dynamic speed limits, AV-mediated speed harmonization, backpressure-inspired speed metering, and cooperative smoothing.
+   Add human-only, random AVs, selfish AVs, density lookup, local dynamic speed advisory, local speed harmonization, local backpressure-inspired speed metering, and cooperative smoothing.
 
 10. **Run topology-by-topology validation**
     For each topology, verify spawning, routing, exits, detector counts, metrics, and baseline behavior before moving to the next topology.

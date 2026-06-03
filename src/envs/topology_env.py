@@ -26,7 +26,7 @@ from src.road.segment_graph import TopologySpec
 from src.road.topology_factory import build_topology
 from src.safety import SafetyConstraints, SafetyContext, SafetyState, apply_safety_layer
 from src.sensing import LocalObservationBuilder, SensingConfig, VehicleSnapshot
-from src.vehicles import HumanBehaviorModel, load_human_behavior_model
+from src.vehicles import HumanBehaviorModel, apply_human_behavior_profile, load_human_behavior_model
 
 ensure_highway_env_importable()
 
@@ -160,6 +160,7 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         self._configure_demand_spawner()
         if not self._uses_continuous_demand():
             self._spawn_controlled_vehicles()
+            self._spawn_initial_human_vehicles()
         else:
             self.agent_ids = []
         return self.get_local_observations(), {
@@ -319,6 +320,8 @@ class HighwayTopologyEnv(BaseCTDEEnv):
     def _spawn_controlled_vehicles(self) -> None:
         if self.road is None:
             raise RuntimeError("road is not initialized")
+        if not self.agent_ids:
+            return
         spawn_lanes, destination = self._spawn_lanes_and_destination()
         for index, agent_id in enumerate(self.agent_ids):
             lane_index = spawn_lanes[index % len(spawn_lanes)]
@@ -333,6 +336,34 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             vehicle.route = road_route_to_destination(lane_index, destination, self.topology)
             self.road.vehicles.append(vehicle)
             self._register_existing_av(agent_id, vehicle, "initial", self.topology.segment_for_lane(lane_index) or "")
+
+    def _spawn_initial_human_vehicles(self) -> None:
+        if self.road is None:
+            raise RuntimeError("road is not initialized")
+        human_count = int(self.config.get("initial_human_vehicles", 0))
+        if human_count <= 0:
+            return
+        spawn_lanes, destination = self._spawn_lanes_and_destination()
+        for index in range(human_count):
+            lane_index = spawn_lanes[index % len(spawn_lanes)]
+            lane = self.road.network.get_lane(lane_index)
+            longitudinal = (20.0 + 35.0 * index) % max(lane.length, 1.0)
+            speed = float(self.config.get("initial_speed_mps", min(lane.speed_limit or 24.0, 24.0)))
+            vehicle = IDMVehicle.make_on_lane(self.road, lane_index, longitudinal=longitudinal, speed=speed)
+            vehicle.enable_lane_change = self.topology.supports_lane_change
+            profile_id = self._human_behavior_model.sample_profile_id(self.road.np_random)
+            profile = self._human_behavior_model.profile_for(profile_id)
+            apply_human_behavior_profile(
+                vehicle,
+                profile,
+                base_target_speed_mps=speed,
+                min_speed_mps=float(self.config.get("min_speed_mps", 0.0)),
+                max_speed_mps=float(self.config.get("max_speed_mps", 40.0)),
+                lane_speed_limit_mps=lane.speed_limit,
+            )
+            vehicle.route = road_route_to_destination(lane_index, destination, self.topology)
+            self.road.vehicles.append(vehicle)
+            self._register_existing_human(vehicle, "initial", self.topology.segment_for_lane(lane_index) or "", profile_id)
 
     def _spawn_lanes_and_destination(self) -> tuple[list[LaneIndex], str]:
         lanes_by_topology: dict[str, tuple[list[LaneIndex], str]] = {
@@ -693,6 +724,30 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             self._next_av_index = max(self._next_av_index, int(agent_id.split("_", 1)[1]) + 1)
         except (IndexError, ValueError):
             pass
+
+    def _register_existing_human(
+        self,
+        vehicle: IDMVehicle,
+        branch_id: str,
+        entry_segment: str,
+        behavior_profile: str | None,
+    ) -> None:
+        vehicle_id = f"human_{self._next_human_index}"
+        self._next_human_index += 1
+        self._human_vehicles[vehicle_id] = vehicle
+        self._vehicle_meta[id(vehicle)] = VehicleMeta(
+            vehicle_id=vehicle_id,
+            role="human",
+            branch_id=branch_id,
+            entry_segment=entry_segment,
+            behavior_profile=behavior_profile,
+        )
+        self._vehicle_runtime[vehicle_id] = self._runtime_for_vehicle(self._vehicle_meta[id(vehicle)], vehicle)
+        self._spawned_vehicle_count += 1
+        self._spawned_human_count += 1
+        if behavior_profile is not None:
+            self._spawned_human_by_profile[behavior_profile] = self._spawned_human_by_profile.get(behavior_profile, 0) + 1
+        self._per_branch_spawned[branch_id] = self._per_branch_spawned.get(branch_id, 0) + 1
 
     def _record_vehicle_exit(self, vehicle: ControlledVehicle) -> None:
         meta = self._vehicle_meta.get(id(vehicle))

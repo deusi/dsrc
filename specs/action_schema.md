@@ -68,6 +68,8 @@ The public interface must not expose:
 
 Humans must remain able to pass AVs when safe. AV-mediated speed harmonization should come from partial compliance and car-following dynamics, not deliberate obstruction.
 
+Non-learning baselines must realize traffic-control behavior only through this public AV action schema. They must not directly set human vehicle speeds, impose infrastructure speed limits, consume roadside/oracle sensing, or return lane-coverage assignments.
+
 ## Hard Safety and Etiquette Checks
 
 The safety/control layer should enforce hard constraints, not only reward penalties:

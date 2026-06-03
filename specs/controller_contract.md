@@ -73,6 +73,8 @@ CTDE learned AV controllers should declare `integrated_rl`.
 
 `integrated_rl` is the only mode that should use the full DSRC safety, etiquette, action-mask, penalty, and bounded physical-control layer. Non-CTDE AV baselines can declare `simulator_default` to use simulator/human-like safety behavior while retaining AV role accounting in metrics.
 
+Non-learning baselines must declare `requires_global_state: false`. Their control decisions must use only the public `local_obs` passed to `act`; they must ignore or reject non-`None` `global_state`, must not read environment internals, and must not use runner-aggregated fleet or segment state. Global state remains available for metrics and CTDE critic training, not non-learning baseline control.
+
 Cooperative learned controllers should declare `local_aggregate` and `supports_fallback_individual: true` when they consume local aggregate AV fields and can operate without neighboring AVs.
 
 Controllers must not return joint lane-blocking plans, lane-coverage assignments, raw acceleration, raw braking, or direct left/right lane-change commands. Lane control is secondary and conservative; primary control is smooth speed/headway damping.
