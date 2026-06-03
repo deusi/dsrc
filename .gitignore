@@ -2,4 +2,5 @@
 *.ext3
 HighwayEnv-sourcecode/
 logs/
+outputs/
 __pycache__/
