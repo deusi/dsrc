@@ -30,7 +30,7 @@ Approach these tasks sequentially. Each item is intentionally broad enough to be
    Add human-only, random AVs, selfish AVs, density lookup, local dynamic speed advisory, local speed harmonization, local backpressure-inspired speed metering, and cooperative smoothing.
 
 10. **Run topology-by-topology validation**
-    For each topology, verify spawning, routing, exits, detector counts, metrics, and baseline behavior before moving to the next topology.
+    For each topology, verify spawning, routing, exits, detector counts, metrics, baseline behavior, and logical directional sanity checks such as selfish AV early speed, density/smoothing behavior under high demand, merge gap creation, branch fairness, and low rolling-roadblock scores before moving to the next topology.
 
 11. **Train the CTDE policy**
     Add centralized-training/decentralized-execution RL for local AV policies once environments and baselines are stable. The actor should learn smooth speed/headway targets with conservative lane preferences; it must not learn obstruction, lane hogging, or coordinated roadblock behavior.

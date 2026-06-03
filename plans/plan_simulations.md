@@ -1094,7 +1094,37 @@ This lets you know whether the environment is producing meaningful effects.
 
 ---
 
-## Phase 8: RL training, simple first
+## Phase 8: Topology-by-topology validation
+
+Before RL, run the baseline ladder across every topology and demand regime with hard invariants plus directional sanity checks.
+
+Deliverable:
+
+```bash
+python scripts/validate_topology_baselines.py --smoke
+python scripts/validate_topology_baselines.py
+```
+
+Expected output:
+
+```text
+outputs/validation/task10/
+  run_summary.csv
+  directional_checks.csv
+  validation_summary.json
+  validation_summary.md
+  runs/<controller>_<topology>_<demand>_seed<seed>/
+```
+
+Hard failures include broken reset/step, bad action keys, active-count mismatches, nonmonotonic completed counts, negative segment metrics, missing branch metrics, ring exits, missing high-demand spawns, and fairness values outside `[0, 1]`.
+
+Directional warnings include sanity expectations such as selfish AVs having higher early speed than density-based controllers, density/harmonization improving saturated throughput or queues over random AVs in stressed straight roads, backpressure/cooperative smoothing helping merge or tree queues/fairness, and rolling-roadblock scores remaining near zero.
+
+Directional warnings are not final paper claims. They are smoke signals for implementation sanity and should be interpreted across multiple seeds.
+
+---
+
+## Phase 9: RL training, simple first
 
 Start with independent PPO or shared-policy PPO before full MAPPO.
 
