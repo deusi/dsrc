@@ -72,6 +72,7 @@ Topology IDs:
 - `straight_multilane`
 - `merge`
 - `inverted_tree`
+- `inverted_tree_bottleneck`
 
 Vehicle roles:
 

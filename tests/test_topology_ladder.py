@@ -21,6 +21,17 @@ EXPECTED_SEGMENTS = {
         "tree_middle_b1",
         "tree_middle_b2",
         "tree_trunk_c",
+    ),
+    "inverted_tree_bottleneck": (
+        "tree_leaf_a1",
+        "tree_leaf_a2",
+        "tree_leaf_a3",
+        "tree_leaf_a4",
+        "tree_leaf_a5",
+        "tree_leaf_a6",
+        "tree_middle_b1",
+        "tree_middle_b2",
+        "tree_trunk_c",
         "tree_bottleneck_d",
     ),
 }
@@ -63,7 +74,16 @@ def test_expected_lane_counts_and_merge_nodes() -> None:
     assert merge.lane_counts["merge_ramp"] == 1
     tree = build_topology("inverted_tree")
     assert tree.merge_nodes == ("tree_merge_b1", "tree_merge_b2", "tree_merge_c")
-    assert tree.lane_counts["tree_bottleneck_d"] == 1
+    assert tree.segment_lengths["tree_trunk_c"] == 900.0
+    assert tree.lane_counts["tree_trunk_c"] == 2
+    assert tree.exit_segments == ("tree_trunk_c",)
+    assert tree.bottleneck_segments == ()
+    bottleneck_tree = build_topology("inverted_tree_bottleneck")
+    assert bottleneck_tree.merge_nodes == ("tree_merge_b1", "tree_merge_b2", "tree_merge_c")
+    assert bottleneck_tree.segment_lengths["tree_trunk_c"] == 600.0
+    assert bottleneck_tree.lane_counts["tree_bottleneck_d"] == 1
+    assert bottleneck_tree.exit_segments == ("tree_bottleneck_d",)
+    assert bottleneck_tree.bottleneck_segments == ("tree_bottleneck_d",)
 
 
 @pytest.mark.parametrize("topology_id", TOPOLOGY_IDS)

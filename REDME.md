@@ -27,7 +27,8 @@ The simulator uses a topology ladder:
 2. `straight_single_lane`: open highway with inflow, outflow, throughput, and travel-time metrics.
 3. `straight_multilane`: open highway with conservative lane preferences and lane-change suppression.
 4. `merge`: Y-merge bottleneck for cooperative gap creation and headway control.
-5. `inverted_tree`: multi-branch-to-trunk network for local pressure, spillback, and branch fairness.
+5. `inverted_tree`: multi-branch-to-trunk network without a final lane-drop bottleneck for branch fairness.
+6. `inverted_tree_bottleneck`: the same tree structure with a final one-lane bottleneck for spillback and stress tests.
 
 ## Controllers
 

@@ -124,7 +124,10 @@ def test_logger_writes_json_and_csv_artifacts(tmp_path) -> None:
     assert rows[0]["segment_id"] == "seg"
 
 
-@pytest.mark.parametrize("topology_id", ["ring", "straight_single_lane", "straight_multilane", "merge", "inverted_tree"])
+@pytest.mark.parametrize(
+    "topology_id",
+    ["ring", "straight_single_lane", "straight_multilane", "merge", "inverted_tree", "inverted_tree_bottleneck"],
+)
 def test_env_exposes_canonical_metrics_for_all_topologies(topology_id: str) -> None:
     env = HighwayTopologyEnv(topology_id, {"controlled_vehicles": 2, "duration_steps": 2})
     obs, _ = env.reset(seed=13)

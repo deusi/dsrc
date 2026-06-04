@@ -19,6 +19,7 @@ Standard topology IDs:
 - `straight_multilane`
 - `merge`
 - `inverted_tree`
+- `inverted_tree_bottleneck`
 
 Standard vehicle roles:
 
@@ -47,6 +48,7 @@ Controller configs may set `controller.safety_mode`. Use `integrated_rl` for the
 ## Example Files
 
 - `topology/ring.yaml`
+- `topology/inverted_tree_bottleneck.yaml`
 - `demand/medium.yaml`
 - `human_models/heterogeneous.yaml`
 - `experiments/exp_ring_wave_damping.yaml`

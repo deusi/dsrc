@@ -231,7 +231,7 @@ def validation_config(spec: RunSpec, args: argparse.Namespace) -> dict[str, Any]
     config = build_config(baseline_args)
     if spec.topology == "ring":
         config["initial_human_vehicles"] = args.initial_human_vehicles
-    if spec.topology in {"merge", "inverted_tree"}:
+    if spec.topology in {"merge", "inverted_tree", "inverted_tree_bottleneck"}:
         demand = dict(config["demand"])
         branches = _branch_ids_for_topology(spec.topology)
         demand["branch_split"] = {branch_id: 1.0 for branch_id in branches}
@@ -263,7 +263,7 @@ def topology_hard_failures(
         failures.append("high demand spawned no vehicles")
     if spec.demand == "high" and spec.duration_steps >= 120 and int(summary.get("completed_vehicle_count", 0)) <= 0:
         failures.append("high demand produced no completed/exited vehicles")
-    if spec.topology in {"merge", "inverted_tree"} and spec.demand in {"high", "burst"}:
+    if spec.topology in {"merge", "inverted_tree", "inverted_tree_bottleneck"} and spec.demand in {"high", "burst"}:
         spawned = demand_state.get("per_branch_spawned", {})
         if isinstance(spawned, Mapping):
             missing = [branch_id for branch_id in active_branches if int(spawned.get(branch_id, 0)) <= 0]
@@ -415,8 +415,14 @@ def tree_directional_checks(results: Sequence[RunResult]) -> list[dict[str, Any]
     for baseline in sorted({result.spec.baseline for result in group}):
         starvation = _branch_starvation_rate(group, baseline)
         rows.append(_threshold_row("inverted_tree", "high/burst", f"{baseline} no branch starvation", starvation, 0.0, "<="))
-    spillback = max(_median_window_metric(group, baseline, "saturated", "queue_length_total") for baseline in ("random_av", "backpressure", "cooperative_smoothing"))
-    rows.append(_threshold_row("inverted_tree", "high/burst", "stress scenario has nontrivial queues", spillback, 0.0, ">"))
+    bottleneck_group = [
+        result for result in results if result.spec.topology == "inverted_tree_bottleneck" and result.spec.demand in {"high", "burst"}
+    ]
+    spillback = max(
+        _median_window_metric(bottleneck_group, baseline, "saturated", "queue_length_total")
+        for baseline in ("random_av", "backpressure", "cooperative_smoothing")
+    )
+    rows.append(_threshold_row("inverted_tree_bottleneck", "high/burst", "stress scenario has nontrivial queues", spillback, 0.0, ">"))
     return rows
 
 
@@ -552,7 +558,7 @@ def _branch_ids_for_topology(topology_id: str) -> tuple[str, ...]:
         return ("main",)
     if topology_id == "merge":
         return ("main", "ramp")
-    if topology_id == "inverted_tree":
+    if topology_id in {"inverted_tree", "inverted_tree_bottleneck"}:
         return tuple(segment.removeprefix("tree_leaf_") for segment in topology.entry_segments)
     return tuple(topology.entry_segments)
 

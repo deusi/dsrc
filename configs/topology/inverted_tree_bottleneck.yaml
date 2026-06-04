@@ -1,8 +1,8 @@
-id: inverted_tree
+id: inverted_tree_bottleneck
 kind: topology
-description: Six-origin inverted-tree network without a final lane-drop bottleneck for branch fairness experiments.
+description: Six-origin inverted-tree network with a final one-lane bottleneck for branch fairness and spillback experiments.
 road:
-  layout: inverted_tree
+  layout: inverted_tree_bottleneck
   leaf_m: 500.0
   middle_m: 600.0
   trunk_m: 600.0
@@ -12,6 +12,7 @@ road:
     leaves: 1
     middle: 2
     trunk: 2
+    bottleneck: 1
   segment_ids:
     - tree_leaf_a1
     - tree_leaf_a2
@@ -22,6 +23,7 @@ road:
     - tree_middle_b1
     - tree_middle_b2
     - tree_trunk_c
+    - tree_bottleneck_d
   segment_lengths:
     tree_leaf_a1: 500.0
     tree_leaf_a2: 500.0
@@ -31,7 +33,8 @@ road:
     tree_leaf_a6: 500.0
     tree_middle_b1: 600.0
     tree_middle_b2: 600.0
-    tree_trunk_c: 900.0
+    tree_trunk_c: 600.0
+    tree_bottleneck_d: 300.0
   entry_segments:
     - tree_leaf_a1
     - tree_leaf_a2
@@ -40,7 +43,7 @@ road:
     - tree_leaf_a5
     - tree_leaf_a6
   exit_segments:
-    - tree_trunk_c
+    - tree_bottleneck_d
   merge_nodes:
     - tree_merge_b1
     - tree_merge_b2
@@ -63,7 +66,9 @@ road:
     tree_middle_b2:
       - 600.0
     tree_trunk_c:
-      - 450.0
+      - 300.0
+    tree_bottleneck_d:
+      - 300.0
 control:
   supports_lane_change: true
   supported_action_fields:

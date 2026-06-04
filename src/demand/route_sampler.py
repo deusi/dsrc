@@ -39,6 +39,7 @@ def build_route_plan(topology: TopologySpec) -> RoutePlan:
         "straight_multilane": "s3",
         "merge": "m3",
         "inverted_tree": "exit",
+        "inverted_tree_bottleneck": "exit",
     }
     try:
         destination = destination_by_topology[topology.topology_id]
@@ -77,6 +78,6 @@ def _branch_id(topology_id: str, segment_id: str) -> str:
         return "main"
     if topology_id == "merge":
         return "ramp" if segment_id == "merge_ramp" else "main"
-    if topology_id == "inverted_tree":
+    if topology_id in {"inverted_tree", "inverted_tree_bottleneck"}:
         return segment_id.removeprefix("tree_leaf_")
     return segment_id

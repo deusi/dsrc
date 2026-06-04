@@ -9,7 +9,7 @@ from src.road.segment_graph import TopologySpec
 from src.road.straight import build_straight_topology
 
 
-TOPOLOGY_IDS = ("ring", "straight_single_lane", "straight_multilane", "merge", "inverted_tree")
+TOPOLOGY_IDS = ("ring", "straight_single_lane", "straight_multilane", "merge", "inverted_tree", "inverted_tree_bottleneck")
 
 
 def build_topology(topology_id: str, config: Mapping[str, Any] | None = None) -> TopologySpec:
@@ -20,6 +20,7 @@ def build_topology(topology_id: str, config: Mapping[str, Any] | None = None) ->
         "straight_multilane": lambda cfg: build_straight_topology("straight_multilane", cfg),
         "merge": build_merge_topology,
         "inverted_tree": build_inverted_tree_topology,
+        "inverted_tree_bottleneck": lambda cfg: build_inverted_tree_topology(cfg, bottleneck=True),
     }
     try:
         return builders[topology_id](road_config)

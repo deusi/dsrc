@@ -366,22 +366,21 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             self._register_existing_human(vehicle, "initial", self.topology.segment_for_lane(lane_index) or "", profile_id)
 
     def _spawn_lanes_and_destination(self) -> tuple[list[LaneIndex], str]:
+        inverted_tree_entries = [
+            ("a1_entry", "b1", 0),
+            ("a2_entry", "b1", 0),
+            ("a3_entry", "b1", 0),
+            ("a4_entry", "b2", 0),
+            ("a5_entry", "b2", 0),
+            ("a6_entry", "b2", 0),
+        ]
         lanes_by_topology: dict[str, tuple[list[LaneIndex], str]] = {
             "ring": ([( "r0", "r1", 0)], "r0"),
             "straight_single_lane": ([("s0", "s1", 0)], "s3"),
             "straight_multilane": ([("s0", "s1", 0), ("s0", "s1", 1), ("s0", "s1", 2)], "s3"),
             "merge": ([("m0", "m1", 0), ("m0", "m1", 1), ("r0", "m1", 0)], "m3"),
-            "inverted_tree": (
-                [
-                    ("a1_entry", "b1", 0),
-                    ("a2_entry", "b1", 0),
-                    ("a3_entry", "b1", 0),
-                    ("a4_entry", "b2", 0),
-                    ("a5_entry", "b2", 0),
-                    ("a6_entry", "b2", 0),
-                ],
-                "exit",
-            ),
+            "inverted_tree": (inverted_tree_entries, "exit"),
+            "inverted_tree_bottleneck": (inverted_tree_entries, "exit"),
         }
         return lanes_by_topology[self.topology_id]
 

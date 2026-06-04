@@ -78,6 +78,9 @@ def test_route_plan_uses_one_way_shared_destinations_and_road_routes() -> None:
     tree = build_route_plan(build_topology("inverted_tree"))
     assert tree.destination == "exit"
     assert {branch.branch_id for branch in tree.branches} == {"a1", "a2", "a3", "a4", "a5", "a6"}
+    bottleneck_tree = build_route_plan(build_topology("inverted_tree_bottleneck"))
+    assert bottleneck_tree.destination == "exit"
+    assert {branch.branch_id for branch in bottleneck_tree.branches} == {"a1", "a2", "a3", "a4", "a5", "a6"}
 
     ring = build_route_plan(build_topology("ring"))
     assert ring.enabled is False

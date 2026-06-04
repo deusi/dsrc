@@ -35,12 +35,12 @@ def _add_sine(net: RoadNetwork, start: str, end: str, p0: list[float], p1: list[
     )
 
 
-def build_inverted_tree_topology(config: Mapping | None = None) -> TopologySpec:
+def build_inverted_tree_topology(config: Mapping | None = None, *, bottleneck: bool = False) -> TopologySpec:
     cfg = dict(config or {})
     leaf = float(cfg.get("leaf_m", DEFAULT_LEAF_M))
     middle = float(cfg.get("middle_m", DEFAULT_MIDDLE_M))
     trunk = float(cfg.get("trunk_m", DEFAULT_TRUNK_M))
-    bottleneck = float(cfg.get("bottleneck_m", DEFAULT_BOTTLENECK_M))
+    bottleneck_length = float(cfg.get("bottleneck_m", DEFAULT_BOTTLENECK_M))
     speed_limit = float(cfg.get("speed_limit_mps", DEFAULT_SPEED_LIMIT_MPS))
 
     net = RoadNetwork()
@@ -91,27 +91,52 @@ def build_inverted_tree_topology(config: Mapping | None = None) -> TopologySpec:
             ),
         )
 
-    for lane_id, y in enumerate((0.0, lane_width)):
+    trunk_end = leaf + middle + trunk
+    if bottleneck:
+        for lane_id, y in enumerate((0.0, lane_width)):
+            net.add_lane(
+                "c",
+                "d",
+                StraightLane(
+                    [leaf + middle, y],
+                    [trunk_end, y],
+                    line_types=[c if lane_id == 0 else s, c if lane_id == 1 else n],
+                    speed_limit=speed_limit,
+                ),
+            )
         net.add_lane(
-            "c",
             "d",
+            "exit",
             StraightLane(
-                [leaf + middle, y],
-                [leaf + middle + trunk, y],
-                line_types=[c if lane_id == 0 else s, c if lane_id == 1 else n],
-                speed_limit=speed_limit,
+                [trunk_end, 0.0],
+                [trunk_end + bottleneck_length, 0.0],
+                line_types=[c, c],
+                speed_limit=0.8 * speed_limit,
             ),
         )
-    net.add_lane(
-        "d",
-        "exit",
-        StraightLane(
-            [leaf + middle + trunk, 0.0],
-            [leaf + middle + trunk + bottleneck, 0.0],
-            line_types=[c, c],
-            speed_limit=0.8 * speed_limit,
-        ),
-    )
+        trunk_segment_length = trunk
+        edge_segments_extra = {
+            ("c", "d"): "tree_trunk_c",
+            ("d", "exit"): "tree_bottleneck_d",
+        }
+        exit_segments = ("tree_bottleneck_d",)
+        bottleneck_segments = ("tree_bottleneck_d",)
+    else:
+        trunk_segment_length = trunk + bottleneck_length
+        for lane_id, y in enumerate((0.0, lane_width)):
+            net.add_lane(
+                "c",
+                "exit",
+                StraightLane(
+                    [leaf + middle, y],
+                    [leaf + middle + trunk_segment_length, y],
+                    line_types=[c if lane_id == 0 else s, c if lane_id == 1 else n],
+                    speed_limit=speed_limit,
+                ),
+            )
+        edge_segments_extra = {("c", "exit"): "tree_trunk_c"}
+        exit_segments = ("tree_trunk_c",)
+        bottleneck_segments = ()
 
     edge_segments: dict[tuple[str, str], str] = {}
     for leaf_id in leaf_y:
@@ -120,11 +145,10 @@ def build_inverted_tree_topology(config: Mapping | None = None) -> TopologySpec:
         {
             ("b1", "c"): "tree_middle_b1",
             ("b2", "c"): "tree_middle_b2",
-            ("c", "d"): "tree_trunk_c",
-            ("d", "exit"): "tree_bottleneck_d",
+            **edge_segments_extra,
         }
     )
-    segment_ids = (
+    base_segment_ids = (
         "tree_leaf_a1",
         "tree_leaf_a2",
         "tree_leaf_a3",
@@ -134,51 +158,50 @@ def build_inverted_tree_topology(config: Mapping | None = None) -> TopologySpec:
         "tree_middle_b1",
         "tree_middle_b2",
         "tree_trunk_c",
-        "tree_bottleneck_d",
     )
+    segment_ids = (*base_segment_ids, "tree_bottleneck_d") if bottleneck else base_segment_ids
     spec = TopologySpec(
-        topology_id="inverted_tree",
+        topology_id="inverted_tree_bottleneck" if bottleneck else "inverted_tree",
         road_network=net,
         segment_ids=segment_ids,
         segment_lengths={
             **{f"tree_leaf_{leaf_id}": leaf for leaf_id in leaf_y},
             "tree_middle_b1": middle,
             "tree_middle_b2": middle,
-            "tree_trunk_c": trunk,
-            "tree_bottleneck_d": bottleneck,
+            "tree_trunk_c": trunk_segment_length,
+            **({"tree_bottleneck_d": bottleneck_length} if bottleneck else {}),
         },
         segment_edges={
             segment: tuple(edge_id(*edge) for edge, edge_segment in edge_segments.items() if edge_segment == segment)
             for segment in segment_ids
         },
         entry_segments=tuple(f"tree_leaf_{leaf_id}" for leaf_id in leaf_y),
-        exit_segments=("tree_bottleneck_d",),
+        exit_segments=exit_segments,
         merge_nodes=("tree_merge_b1", "tree_merge_b2", "tree_merge_c"),
         detector_locations={
             **{f"tree_leaf_{leaf_id}": (leaf,) for leaf_id in leaf_y},
             "tree_middle_b1": (middle,),
             "tree_middle_b2": (middle,),
-            "tree_trunk_c": (trunk / 2.0,),
-            "tree_bottleneck_d": (bottleneck,),
+            "tree_trunk_c": (trunk_segment_length / 2.0,),
+            **({"tree_bottleneck_d": (bottleneck_length,)} if bottleneck else {}),
         },
         lane_counts={
             **{f"tree_leaf_{leaf_id}": 1 for leaf_id in leaf_y},
             "tree_middle_b1": 2,
             "tree_middle_b2": 2,
             "tree_trunk_c": 2,
-            "tree_bottleneck_d": 1,
+            **({"tree_bottleneck_d": 1} if bottleneck else {}),
         },
-        bottleneck_segments=("tree_bottleneck_d",),
+        bottleneck_segments=bottleneck_segments,
         lane_segments=lane_segment_map(net, edge_segments),
         supports_lane_change=True,
         metadata={
             "leaf_m": leaf,
             "middle_m": middle,
             "trunk_m": trunk,
-            "bottleneck_m": bottleneck,
+            "bottleneck_m": bottleneck_length,
             "speed_limit_mps": speed_limit,
         },
     )
     spec.validate()
     return spec
-
