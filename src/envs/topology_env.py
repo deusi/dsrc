@@ -417,7 +417,9 @@ class HighwayTopologyEnv(BaseCTDEEnv):
                 continue
             existing, _ = self.road.network.get_lane(lane_index).local_coordinates(vehicle.position)
             gap = abs(float(existing) - longitudinal)
-            minimum_gap = min(minimum_gap, min(gap, length - gap))
+            if self.topology_id == "ring":
+                gap = min(gap, length - gap)
+            minimum_gap = min(minimum_gap, gap)
         return minimum_gap
 
     def _spawn_lanes_and_destination(self) -> tuple[list[LaneIndex], str]:
@@ -532,7 +534,8 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         else:
             state = self._safety_states[agent_id]
             state.last_lane_change_time_s = self._time
-            state.lane_changes_last_km += 1
+            state.lane_change_distances_m.append(state.absolute_distance_m)
+            self._prune_lane_change_window(state)
             state.last_lane_index = vehicle.target_lane_index
 
     def _apply_simulator_default_av_action(
@@ -668,10 +671,18 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         dt = float(self.config.get("dt", 1.0))
         for agent_id, vehicle in self._av_vehicles.items():
             state = self._safety_states[agent_id]
-            state.distance_since_window_start_m += max(0.0, float(vehicle.speed)) * dt
-            if state.distance_since_window_start_m >= 1000.0:
-                state.distance_since_window_start_m = 0.0
-                state.lane_changes_last_km = 0
+            distance_delta = max(0.0, float(vehicle.speed)) * dt
+            state.absolute_distance_m += distance_delta
+            state.distance_since_window_start_m = state.absolute_distance_m
+            self._prune_lane_change_window(state)
+
+    @staticmethod
+    def _prune_lane_change_window(state: SafetyState) -> None:
+        window_start = max(0.0, state.absolute_distance_m - 1000.0)
+        state.lane_change_distances_m = [
+            distance for distance in state.lane_change_distances_m if distance >= window_start
+        ]
+        state.lane_changes_last_km = len(state.lane_change_distances_m)
 
     def _active_vehicles(self) -> list[ControlledVehicle]:
         return [*self._av_vehicles.values(), *self._human_vehicles.values()]

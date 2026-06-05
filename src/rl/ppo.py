@@ -57,6 +57,8 @@ def ppo_update(
     observations = batch.observations.to(device)
     actions = batch.actions.to(device)
     old_log_probs = batch.old_log_probs.to(device)
+    if not torch.isfinite(old_log_probs).all():
+        raise ValueError("PPO batch contains non-finite old log probabilities")
     returns = batch.returns.to(device)
     advantages = batch.advantages.to(device)
     value_observations = batch.value_observations.to(device)
@@ -69,16 +71,25 @@ def ppo_update(
         for start in range(0, batch_size, minibatch_size):
             indices = permutation[start : start + minibatch_size]
             log_probs, entropy = actor.evaluate_actions(observations[indices], actions[indices], action_masks[indices])
+            if not torch.isfinite(log_probs).all():
+                raise ValueError("PPO update produced non-finite action log probabilities")
             values = critic(value_observations[indices])
-            ratio = torch.exp(log_probs - old_log_probs[indices])
+            log_ratio = torch.clamp(log_probs - old_log_probs[indices], min=-20.0, max=20.0)
+            ratio = torch.exp(log_ratio)
             clipped_ratio = torch.clamp(ratio, 1.0 - config.clip_coef, 1.0 + config.clip_coef)
             policy_loss = -torch.min(ratio * advantages[indices], clipped_ratio * advantages[indices]).mean()
             value_loss = torch.nn.functional.mse_loss(values, returns[indices])
             entropy_mean = entropy.mean()
             loss = policy_loss + config.value_coef * value_loss - config.entropy_coef * entropy_mean
+            if not torch.isfinite(loss):
+                raise ValueError("PPO update produced a non-finite loss")
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_([*actor.parameters(), *critic.parameters()], config.max_grad_norm)
+            torch.nn.utils.clip_grad_norm_(
+                [*actor.parameters(), *critic.parameters()],
+                config.max_grad_norm,
+                error_if_nonfinite=True,
+            )
             optimizer.step()
             stats["policy_loss"].append(float(policy_loss.detach().cpu()))
             stats["value_loss"].append(float(value_loss.detach().cpu()))

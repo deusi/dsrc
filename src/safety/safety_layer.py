@@ -14,6 +14,8 @@ class SafetyState:
     last_lane_change_time_s: float | None = None
     lane_changes_last_km: int = 0
     distance_since_window_start_m: float = 0.0
+    absolute_distance_m: float = 0.0
+    lane_change_distances_m: list[float] = field(default_factory=list)
     last_lane_index: Any | None = None
 
 
@@ -231,7 +233,12 @@ def _lane_preference_safe(
 
 
 def _lane_change_count_exceeded(state: SafetyState, constraints: SafetyConstraints) -> bool:
-    return state.lane_changes_last_km >= constraints.max_lane_changes_per_km
+    if state.lane_change_distances_m:
+        window_start = max(0.0, state.absolute_distance_m - 1000.0)
+        recent_changes = sum(1 for distance in state.lane_change_distances_m if distance >= window_start)
+    else:
+        recent_changes = state.lane_changes_last_km
+    return recent_changes >= constraints.max_lane_changes_per_km
 
 
 def _forward_ttc(context: SafetyContext) -> float:

@@ -317,6 +317,28 @@ def test_initial_human_spawn_avoids_existing_vehicle_overlap() -> None:
                 assert min(gap, lane_length - gap) >= 8.9
 
 
+def test_initial_gap_uses_wrap_distance_only_on_ring() -> None:
+    from highway_env.vehicle.behavior import IDMVehicle
+
+    straight = HighwayTopologyEnv("straight_single_lane", {"controlled_vehicles": 0, "initial_human_vehicles": 0})
+    straight.reset(seed=7)
+    straight_lane = ("s0", "s1", 0)
+    straight_length = straight.road.network.get_lane(straight_lane).length
+    straight.road.vehicles.append(
+        IDMVehicle.make_on_lane(straight.road, straight_lane, longitudinal=straight_length - 10.0, speed=0.0)
+    )
+
+    assert straight._minimum_initial_gap(straight_lane, 10.0, straight_length) == pytest.approx(straight_length - 20.0)
+
+    ring = HighwayTopologyEnv("ring", {"controlled_vehicles": 0, "initial_human_vehicles": 0})
+    ring.reset(seed=7)
+    ring_lane = ("r0", "r1", 0)
+    ring_length = ring.road.network.get_lane(ring_lane).length
+    ring.road.vehicles.append(IDMVehicle.make_on_lane(ring.road, ring_lane, longitudinal=ring_length - 10.0, speed=0.0))
+
+    assert ring._minimum_initial_gap(ring_lane, 10.0, ring_length) == pytest.approx(20.0)
+
+
 def test_active_vehicle_records_use_precomputed_segment_density_and_reverse_lookup() -> None:
     env = HighwayTopologyEnv("ring", {"controlled_vehicles": 2, "initial_human_vehicles": 2})
     env.reset(seed=11)

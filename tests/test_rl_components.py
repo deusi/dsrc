@@ -18,7 +18,7 @@ from src.rl.encoders import (
 from src.rl.models import GlobalCritic, LocalCritic, MultiCategoricalActor
 from src.rl.ppo import PPOConfig, ppo_update
 from src.rl.rollout_buffer import RolloutBuffer
-from src.rl.trainers import MAPPOTrainer, SharedPPOTrainer, TrainingConfig, aggregate_rollout_metrics
+from src.rl.trainers import IPPOTrainer, MAPPOTrainer, SharedPPOTrainer, TrainingConfig, aggregate_rollout_metrics
 
 
 def local_obs(**overrides):
@@ -276,6 +276,44 @@ def test_rollout_buffer_bootstraps_nonterminal_final_transition() -> None:
     assert batch.returns[0] == pytest.approx(1.375)
 
 
+def test_shared_ppo_uses_shared_advantages_and_bootstrap_key() -> None:
+    obs = encode_local_observation(local_obs())
+    action = torch.tensor([1, 0, 0, 0])
+    buffer = RolloutBuffer()
+    for agent_id, reward, value in (
+        ("av_0", 1.0, 0.2),
+        ("av_1", 0.5, 0.1),
+    ):
+        buffer.add(
+            observation=obs,
+            action=action,
+            log_prob=torch.tensor(-1.0),
+            reward=reward,
+            value=torch.tensor(value),
+            done=False,
+            agent_id=agent_id,
+        )
+    buffer.set_bootstrap_values({"av_0": 10.0, "av_1": 20.0, "__shared__": 30.0})
+
+    shared = buffer.compute_returns_and_advantages(
+        gamma=0.5,
+        gae_lambda=1.0,
+        normalize_advantages=False,
+        group_by_agent=False,
+    )
+    per_agent = buffer.compute_returns_and_advantages(
+        gamma=0.5,
+        gae_lambda=1.0,
+        normalize_advantages=False,
+        group_by_agent=True,
+    )
+
+    assert SharedPPOTrainer.advantage_group_by_agent is False
+    assert IPPOTrainer.advantage_group_by_agent is True
+    assert shared.returns.tolist() != pytest.approx(per_agent.returns.tolist())
+    assert shared.returns[-1] == pytest.approx(15.5)
+
+
 def test_ppo_update_runs_one_minibatch() -> None:
     actor = MultiCategoricalActor(local_obs_dim(), hidden_sizes=(16,), action_spec=ActionSpec("speed_only"))
     critic = LocalCritic(local_obs_dim(), hidden_sizes=(16,))
@@ -299,6 +337,88 @@ def test_ppo_update_runs_one_minibatch() -> None:
     stats = ppo_update(actor=actor, critic=critic, optimizer=optimizer, batch=batch, config=PPOConfig(update_epochs=1), device=torch.device("cpu"))
     assert "loss" in stats
     assert torch.isfinite(torch.tensor(stats["loss"]))
+
+
+def test_ppo_update_rejects_nonfinite_old_log_probs() -> None:
+    actor = MultiCategoricalActor(local_obs_dim(), hidden_sizes=(16,), action_spec=ActionSpec("speed_only"))
+    critic = LocalCritic(local_obs_dim(), hidden_sizes=(16,))
+    optimizer = torch.optim.Adam([*actor.parameters(), *critic.parameters()], lr=1e-3)
+    obs = encode_local_observation(local_obs())
+    batch = RolloutBuffer()
+    batch.add(
+        observation=obs,
+        action=torch.tensor([1, 0, 0, 0]),
+        log_prob=torch.tensor(float("-inf")),
+        reward=1.0,
+        value=torch.tensor(0.0),
+        done=True,
+        action_mask=encode_action_mask(local_obs(), ActionSpec("speed_only")),
+        agent_id="av_0",
+    )
+
+    with pytest.raises(ValueError, match="non-finite old log"):
+        ppo_update(
+            actor=actor,
+            critic=critic,
+            optimizer=optimizer,
+            batch=batch.compute_returns_and_advantages(gamma=0.99, gae_lambda=0.95, normalize_advantages=False),
+            config=PPOConfig(update_epochs=1),
+            device=torch.device("cpu"),
+        )
+
+
+def test_ppo_update_clamps_extreme_finite_log_ratios() -> None:
+    actor = MultiCategoricalActor(local_obs_dim(), hidden_sizes=(16,), action_spec=ActionSpec("speed_only"))
+    critic = LocalCritic(local_obs_dim(), hidden_sizes=(16,))
+    optimizer = torch.optim.Adam([*actor.parameters(), *critic.parameters()], lr=1e-3)
+    obs = encode_local_observation(local_obs())
+    buffer = RolloutBuffer()
+    buffer.add(
+        observation=obs,
+        action=torch.tensor([1, 0, 0, 0]),
+        log_prob=torch.tensor(-1.0e6),
+        reward=1.0,
+        value=torch.tensor(0.0),
+        done=True,
+        action_mask=encode_action_mask(local_obs(), ActionSpec("speed_only")),
+        agent_id="av_0",
+    )
+    batch = buffer.compute_returns_and_advantages(gamma=0.99, gae_lambda=0.95, normalize_advantages=False)
+
+    stats = ppo_update(
+        actor=actor,
+        critic=critic,
+        optimizer=optimizer,
+        batch=batch,
+        config=PPOConfig(update_epochs=1),
+        device=torch.device("cpu"),
+    )
+
+    assert torch.isfinite(torch.tensor(list(stats.values()))).all()
+    assert all(torch.isfinite(parameter).all().item() for parameter in actor.parameters())
+    assert all(torch.isfinite(parameter).all().item() for parameter in critic.parameters())
+
+
+def test_collect_rollout_fills_horizon_across_short_episodes() -> None:
+    trainer = SharedPPOTrainer(
+        TrainingConfig(
+            algorithm="shared_ppo",
+            action_profile="speed_only",
+            hidden_sizes=(8,),
+            rollout_steps=5,
+            duration_steps=2,
+            controlled_vehicles=1,
+            initial_human_vehicles=0,
+            topology="ring",
+        ),
+        PPOConfig(update_epochs=1, minibatch_size=4),
+        device="cpu",
+    )
+
+    rollout, metrics = trainer.collect_rollout(seed=17)
+
+    assert len(rollout) == 5
+    assert metrics
 
 
 def test_mappo_critic_uses_global_state_but_controller_rejects_global_state() -> None:

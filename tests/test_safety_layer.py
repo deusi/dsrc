@@ -52,6 +52,41 @@ def test_lane_change_window_uses_count_not_distance_rate_spike() -> None:
     assert mask["lane_preference"]["prefer_right_if_safe"] is True
 
 
+def test_lane_change_window_is_rolling_across_km_boundary() -> None:
+    state = SafetyState(
+        absolute_distance_m=1010.0,
+        lane_change_distances_m=[10.0, 990.0],
+        last_lane_change_time_s=None,
+    )
+
+    decision = apply_safety_layer(
+        action(lane_preference="prefer_right_if_safe"),
+        state,
+        SafetyContext(time_s=30.0),
+        SafetyConstraints(max_lane_changes_per_km=2.0),
+    )
+
+    assert decision.lane_action is None
+    assert decision.diagnostics["safety_masked_action"][0]["reason"] == "lane_changes_per_km"
+
+
+def test_lane_change_window_expires_old_distances() -> None:
+    state = SafetyState(
+        absolute_distance_m=1991.0,
+        lane_change_distances_m=[10.0, 990.0],
+        last_lane_change_time_s=None,
+    )
+
+    decision = apply_safety_layer(
+        action(lane_preference="prefer_right_if_safe"),
+        state,
+        SafetyContext(time_s=30.0),
+        SafetyConstraints(max_lane_changes_per_km=2.0),
+    )
+
+    assert decision.lane_action == "LANE_RIGHT"
+
+
 def test_unsafe_rear_gap_blocks_follower_disruption() -> None:
     decision = apply_safety_layer(
         action(lane_preference="prefer_left_if_safe"),

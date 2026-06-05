@@ -160,8 +160,14 @@ class BasePPOTrainer:
         metric_history: list[dict[str, Any]] = []
         terminated = False
         truncated = False
+        episode_index = 0
         steps = 0
-        while not (terminated or truncated) and steps < self.config.rollout_steps:
+        while steps < self.config.rollout_steps:
+            if terminated or truncated:
+                episode_index += 1
+                observations, _ = env.reset(seed=seed + episode_index)
+                terminated = False
+                truncated = False
             agent_ids, obs_tensor = encode_local_batch(observations)
             if not agent_ids:
                 observations, _, terminated, truncated, info = env.step({})
@@ -225,6 +231,8 @@ class BasePPOTrainer:
             agent_id: float(values[index].detach().cpu().item())
             for index, agent_id in enumerate(agent_ids)
         }
+        if not self.advantage_group_by_agent:
+            bootstrap_values = {"__shared__": float(values.detach().mean().cpu().item())}
         buffer.set_bootstrap_values(bootstrap_values)
 
     def env_config(self) -> dict[str, Any]:
@@ -386,7 +394,7 @@ class BasePPOTrainer:
 
 class SharedPPOTrainer(BasePPOTrainer):
     critic_scope = "local"
-    advantage_group_by_agent = True
+    advantage_group_by_agent = False
 
 
 class IPPOTrainer(BasePPOTrainer):
