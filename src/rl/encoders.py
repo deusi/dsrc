@@ -6,8 +6,6 @@ from typing import Any
 
 import torch
 
-from src.rl.actions import ACTION_HEADS, ACTION_VALUES, ActionSpec
-
 
 LOCAL_OBS_FIELDS: tuple[str, ...] = (
     "is_active",
@@ -244,47 +242,6 @@ def encode_local_batch(observations: Mapping[str, Mapping[str, Any]]) -> tuple[l
     if not agent_ids:
         return [], torch.empty((0, local_obs_dim()), dtype=torch.float32)
     return agent_ids, torch.stack([encode_local_observation(observations[agent_id]) for agent_id in agent_ids])
-
-
-def action_mask_shape() -> tuple[int, int]:
-    return len(ACTION_HEADS), max(len(values) for values in ACTION_VALUES.values())
-
-
-def encode_action_mask(obs: Mapping[str, Any], spec: ActionSpec | None = None) -> torch.Tensor:
-    spec = spec or ActionSpec("full")
-    heads, values_per_head = action_mask_shape()
-    mask_tensor = torch.ones((heads, values_per_head), dtype=torch.bool)
-    raw_mask = obs.get("action_mask", {})
-    if not isinstance(raw_mask, Mapping):
-        raw_mask = {}
-    active_heads = set(spec.active_heads)
-    for head_index, head in enumerate(ACTION_HEADS):
-        values = ACTION_VALUES[head]
-        if head not in active_heads:
-            mask_tensor[head_index, :] = False
-            default_index = spec.default_indices()[head]
-            mask_tensor[head_index, default_index] = True
-            continue
-        head_mask = raw_mask.get(head, {})
-        if not isinstance(head_mask, Mapping):
-            continue
-        for value_index, value in enumerate(values):
-            mask_tensor[head_index, value_index] = bool(head_mask.get(value, True))
-        if not bool(mask_tensor[head_index, : len(values)].any()):
-            mask_tensor[head_index, :] = False
-            mask_tensor[head_index, spec.default_indices()[head]] = True
-    return mask_tensor
-
-
-def encode_action_mask_batch(
-    observations: Mapping[str, Mapping[str, Any]],
-    agent_ids: list[str],
-    spec: ActionSpec | None = None,
-) -> torch.Tensor:
-    heads, values_per_head = action_mask_shape()
-    if not agent_ids:
-        return torch.empty((0, heads, values_per_head), dtype=torch.bool)
-    return torch.stack([encode_action_mask(observations[agent_id], spec) for agent_id in agent_ids])
 
 
 def _field_number(field: str, value: Any) -> float:

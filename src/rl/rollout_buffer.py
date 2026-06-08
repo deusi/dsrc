@@ -4,8 +4,6 @@ from dataclasses import dataclass
 
 import torch
 
-from src.rl.encoders import action_mask_shape
-
 
 @dataclass
 class RolloutBatch:
@@ -15,7 +13,6 @@ class RolloutBatch:
     returns: torch.Tensor
     advantages: torch.Tensor
     value_observations: torch.Tensor
-    action_masks: torch.Tensor
 
 
 class RolloutBuffer:
@@ -29,7 +26,6 @@ class RolloutBuffer:
         self.values: list[float] = []
         self.dones: list[bool] = []
         self.value_observations: list[torch.Tensor] = []
-        self.action_masks: list[torch.Tensor] = []
         self.agent_ids: list[str] = []
         self.bootstrap_values: dict[str, float] = {}
 
@@ -46,7 +42,6 @@ class RolloutBuffer:
         value: torch.Tensor,
         done: bool,
         value_observation: torch.Tensor | None = None,
-        action_mask: torch.Tensor | None = None,
         agent_id: str = "",
     ) -> None:
         self.observations.append(observation.detach().cpu())
@@ -56,9 +51,6 @@ class RolloutBuffer:
         self.values.append(float(value.detach().cpu().item()))
         self.dones.append(bool(done))
         self.value_observations.append((value_observation if value_observation is not None else observation).detach().cpu())
-        if action_mask is None:
-            action_mask = torch.ones(action_mask_shape(), dtype=torch.bool)
-        self.action_masks.append(action_mask.detach().cpu().bool())
         self.agent_ids.append(agent_id)
 
     def set_bootstrap_values(self, values: dict[str, float]) -> None:
@@ -104,5 +96,4 @@ class RolloutBuffer:
             returns=returns,
             advantages=advantage_tensor,
             value_observations=torch.stack(self.value_observations),
-            action_masks=torch.stack(self.action_masks),
         )

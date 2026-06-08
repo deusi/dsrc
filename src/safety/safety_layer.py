@@ -169,31 +169,6 @@ def physical_control_command(
     )
 
 
-def safety_action_mask(
-    state: SafetyState,
-    context: SafetyContext,
-    constraints: SafetyConstraints | None = None,
-) -> dict[str, dict[str, bool]]:
-    constraints = constraints or SafetyConstraints()
-    lateral_safe = _lane_preference_safe(state, context, constraints)
-    slow_safe = not is_low_speed_uncongested(
-        decode_speed_bin("slow", context.free_flow_speed_mps, context.min_contextual_speed_mps),
-        context.free_flow_speed_mps,
-        context.local_density_veh_per_km,
-        constraints,
-    )
-    return {
-        "desired_speed_bin": {"slow": slow_safe, "nominal": True, "fast": True},
-        "desired_headway_bin": {"normal": True, "larger": True, "largest": True},
-        "lane_preference": {
-            "keep": True,
-            "prefer_left_if_safe": lateral_safe,
-            "prefer_right_if_safe": lateral_safe,
-        },
-        "merge_mode": {"normal": True, "create_gap": True, "hold_lane": True},
-    }
-
-
 def safety_penalty_terms(
     diagnostics: dict[str, list[dict[str, Any]]],
     *,

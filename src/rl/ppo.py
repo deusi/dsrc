@@ -62,7 +62,6 @@ def ppo_update(
     returns = batch.returns.to(device)
     advantages = batch.advantages.to(device)
     value_observations = batch.value_observations.to(device)
-    action_masks = batch.action_masks.to(device)
     batch_size = observations.shape[0]
     minibatch_size = max(1, min(config.minibatch_size, batch_size))
     stats: dict[str, list[float]] = {"policy_loss": [], "value_loss": [], "entropy": [], "loss": []}
@@ -70,7 +69,7 @@ def ppo_update(
         permutation = torch.randperm(batch_size, device=device)
         for start in range(0, batch_size, minibatch_size):
             indices = permutation[start : start + minibatch_size]
-            log_probs, entropy = actor.evaluate_actions(observations[indices], actions[indices], action_masks[indices])
+            log_probs, entropy = actor.evaluate_actions(observations[indices], actions[indices])
             if not torch.isfinite(log_probs).all():
                 raise ValueError("PPO update produced non-finite action log probabilities")
             values = critic(value_observations[indices])

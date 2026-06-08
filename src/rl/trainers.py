@@ -17,7 +17,6 @@ from src.envs.topology_env import HighwayTopologyEnv
 from src.metrics import MetricsLogger
 from src.rl.actions import ActionSpec
 from src.rl.encoders import (
-    encode_action_mask_batch,
     encode_local_batch,
     encode_physical_global_state,
     local_obs_dim,
@@ -176,9 +175,8 @@ class BasePPOTrainer:
                 steps += 1
                 continue
             obs_tensor = obs_tensor.to(self.device)
-            action_masks = encode_action_mask_batch(observations, agent_ids, self.action_spec).to(self.device)
             with torch.no_grad():
-                actions, action_indices, log_probs, _ = self.actor.sample(obs_tensor, action_masks=action_masks)
+                actions, action_indices, log_probs, _ = self.actor.sample(obs_tensor)
                 value_obs = self.value_observation_tensor(env.get_global_state(), obs_tensor, len(agent_ids))
                 values = self.critic(value_obs)
             action_map = {agent_id: action for agent_id, action in zip(agent_ids, actions, strict=True)}
@@ -197,7 +195,6 @@ class BasePPOTrainer:
                     value=values[index],
                     done=bool(terminated or agent_id not in next_observations),
                     value_observation=value_obs[index],
-                    action_mask=action_masks[index],
                     agent_id=agent_id,
                 )
             observations = next_observations

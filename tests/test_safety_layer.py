@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from src.envs.wrappers import decode_headway_bin
-from src.safety import SafetyConstraints, SafetyContext, SafetyState, apply_safety_layer, safety_action_mask
+from src.safety import SafetyConstraints, SafetyContext, SafetyState, apply_safety_layer
 
 
 def action(**overrides: str) -> dict[str, str]:
@@ -42,14 +42,8 @@ def test_lane_change_window_uses_count_not_distance_rate_spike() -> None:
         SafetyContext(time_s=30.0),
         SafetyConstraints(max_lane_changes_per_km=2.0),
     )
-    mask = safety_action_mask(
-        SafetyState(lane_changes_last_km=1, distance_since_window_start_m=1.0),
-        SafetyContext(time_s=30.0),
-        SafetyConstraints(max_lane_changes_per_km=2.0),
-    )
 
     assert decision.lane_action == "LANE_RIGHT"
-    assert mask["lane_preference"]["prefer_right_if_safe"] is True
 
 
 def test_lane_change_window_is_rolling_across_km_boundary() -> None:
@@ -194,20 +188,3 @@ def test_unsafe_target_lane_rear_ttc_blocks_lane_preference() -> None:
     assert decision.lane_action is None
     assert decision.diagnostics["safety_masked_action"][0]["reason"] == "target_lane_rear_ttc"
 
-
-def test_safety_action_mask_blocks_unsafe_lateral_and_slow_uncongested() -> None:
-    mask = safety_action_mask(
-        SafetyState(last_lane_change_time_s=9.0),
-        SafetyContext(
-            time_s=10.0,
-            free_flow_speed_mps=30.0,
-            local_density_veh_per_km=2.0,
-            target_lane_front_gap_m=3.0,
-        ),
-        SafetyConstraints(),
-    )
-
-    assert mask["desired_speed_bin"]["slow"] is False
-    assert mask["lane_preference"]["keep"] is True
-    assert mask["lane_preference"]["prefer_left_if_safe"] is False
-    assert mask["lane_preference"]["prefer_right_if_safe"] is False

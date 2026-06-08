@@ -25,7 +25,7 @@ from src.metrics.safety_metrics import rear_ttc
 from src.road.highway_imports import ensure_highway_env_importable
 from src.road.segment_graph import TopologySpec
 from src.road.topology_factory import build_topology
-from src.safety import SafetyConstraints, SafetyContext, SafetyState, apply_safety_layer, safety_action_mask
+from src.safety import SafetyConstraints, SafetyContext, SafetyState, apply_safety_layer
 from src.sensing import LocalObservationBuilder, SensingConfig, VehicleSnapshot
 from src.vehicles import HumanBehaviorModel, apply_human_behavior_profile, load_human_behavior_model
 
@@ -283,8 +283,6 @@ class HighwayTopologyEnv(BaseCTDEEnv):
             constraints=self._safety_constraints(),
             rng=self.road.np_random,
         )
-        for agent_id in observations:
-            observations[agent_id]["action_mask"] = self._action_mask_for_agent(agent_id)
         return observations
 
     def get_global_state(self) -> GlobalState:
@@ -558,16 +556,6 @@ class HighwayTopologyEnv(BaseCTDEEnv):
         lane_action = None if action["merge_mode"] == "hold_lane" else lane_preference_to_action(action["lane_preference"])
         if self.topology.supports_lane_change and lane_action is not None:
             self._apply_lane_action(agent_id, vehicle, lane_action, diagnostics)
-
-    def _action_mask_for_agent(self, agent_id: str) -> dict[str, dict[str, bool]]:
-        vehicle = self._av_vehicles.get(agent_id)
-        if vehicle is None:
-            return {}
-        return safety_action_mask(
-            self._safety_states.get(agent_id, SafetyState()),
-            self._safety_context_for_vehicle(vehicle),
-            self._safety_constraints(),
-        )
 
     def _safety_context_for_vehicle(self, vehicle: ControlledVehicle) -> SafetyContext:
         if self.road is None:

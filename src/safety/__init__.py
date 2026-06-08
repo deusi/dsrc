@@ -7,7 +7,6 @@ from src.safety.safety_layer import (
     SafetyState,
     apply_safety_layer,
     physical_control_command,
-    safety_action_mask,
     safety_penalty_terms,
 )
 
@@ -18,6 +17,5 @@ __all__ = [
     "SafetyState",
     "apply_safety_layer",
     "physical_control_command",
-    "safety_action_mask",
     "safety_penalty_terms",
 ]

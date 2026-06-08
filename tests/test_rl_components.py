@@ -7,7 +7,6 @@ from src.envs.wrappers import validate_action_mapping
 from src.rl.actions import ActionSpec, action_to_indices, indices_to_action
 from src.rl.controller import LearnedPolicyController
 from src.rl.encoders import (
-    encode_action_mask,
     encode_global_state,
     encode_local_observation,
     encode_physical_global_state,
@@ -93,17 +92,6 @@ def test_encoder_bounds_nonfinite_local_observation_values() -> None:
     assert encoded.abs().max() <= 5.0
 
 
-def test_action_mask_is_encoded_separately_from_local_numeric_features() -> None:
-    masked = local_obs(action_mask={"desired_speed_bin": {"slow": True, "nominal": False, "fast": False}})
-    encoded_with_mask = encode_local_observation(masked)
-    encoded_without_mask = encode_local_observation(local_obs())
-    mask = encode_action_mask(masked, ActionSpec("full"))
-
-    assert torch.equal(encoded_with_mask, encoded_without_mask)
-    assert mask.shape == (4, 3)
-    assert mask[0].tolist() == [True, False, False]
-
-
 @pytest.mark.parametrize("profile", ["speed_only", "speed_headway", "full"])
 def test_actor_emits_valid_v2_actions_for_profiles(profile: str) -> None:
     actor = MultiCategoricalActor(local_obs_dim(), hidden_sizes=(16,), action_spec=ActionSpec(profile))  # type: ignore[arg-type]
@@ -121,67 +109,16 @@ def test_actor_emits_valid_v2_actions_for_profiles(profile: str) -> None:
         assert all(action["lane_preference"] == "keep" for action in actions)
 
 
-def test_actor_sampling_and_evaluation_respect_hard_masks() -> None:
+def test_actor_sampling_and_evaluation_are_consistent_without_pre_filtering() -> None:
     actor = MultiCategoricalActor(local_obs_dim(), hidden_sizes=(16,), action_spec=ActionSpec("full"))
     obs = torch.stack([encode_local_observation(local_obs()), encode_local_observation(local_obs(ego_speed=10.0))])
-    masks = torch.stack(
-        [
-            encode_action_mask(
-                local_obs(
-                    action_mask={
-                        "desired_speed_bin": {"slow": False, "nominal": False, "fast": True},
-                        "desired_headway_bin": {"normal": False, "larger": True, "largest": False},
-                        "lane_preference": {"keep": False, "prefer_left_if_safe": True, "prefer_right_if_safe": False},
-                        "merge_mode": {"normal": False, "create_gap": True, "hold_lane": False},
-                    }
-                ),
-                ActionSpec("full"),
-            ),
-            encode_action_mask(
-                local_obs(
-                    action_mask={
-                        "desired_speed_bin": {"slow": True, "nominal": False, "fast": False},
-                        "desired_headway_bin": {"normal": False, "larger": False, "largest": True},
-                        "lane_preference": {"keep": False, "prefer_left_if_safe": False, "prefer_right_if_safe": True},
-                        "merge_mode": {"normal": False, "create_gap": False, "hold_lane": True},
-                    }
-                ),
-                ActionSpec("full"),
-            ),
-        ]
-    )
 
-    actions, indices, log_probs, entropies = actor.sample(obs, deterministic=True, action_masks=masks)
-    evaluated_log_probs, evaluated_entropies = actor.evaluate_actions(obs, indices, action_masks=masks)
+    actions, indices, log_probs, entropies = actor.sample(obs, deterministic=True)
+    evaluated_log_probs, evaluated_entropies = actor.evaluate_actions(obs, indices)
 
-    assert actions[0] == {
-        "desired_speed_bin": "fast",
-        "desired_headway_bin": "larger",
-        "lane_preference": "prefer_left_if_safe",
-        "merge_mode": "create_gap",
-    }
-    assert actions[1] == {
-        "desired_speed_bin": "slow",
-        "desired_headway_bin": "largest",
-        "lane_preference": "prefer_right_if_safe",
-        "merge_mode": "hold_lane",
-    }
+    validate_action_mapping({str(index): action for index, action in enumerate(actions)})
     assert torch.allclose(log_probs, evaluated_log_probs)
     assert torch.allclose(entropies, evaluated_entropies)
-
-
-def test_all_invalid_action_mask_falls_back_to_default_only() -> None:
-    actor = MultiCategoricalActor(local_obs_dim(), hidden_sizes=(16,), action_spec=ActionSpec("full"))
-    obs = torch.stack([encode_local_observation(local_obs())])
-    mask = encode_action_mask(
-        local_obs(action_mask={"desired_speed_bin": {"slow": False, "nominal": False, "fast": False}}),
-        ActionSpec("full"),
-    ).unsqueeze(0)
-
-    actions, indices, _, _ = actor.sample(obs, deterministic=True, action_masks=mask)
-
-    assert actions[0]["desired_speed_bin"] == "slow"
-    assert indices[0, 0].item() == 0
 
 
 def test_action_index_round_trip() -> None:
@@ -330,7 +267,6 @@ def test_ppo_update_runs_one_minibatch() -> None:
         reward=1.0,
         value=value,
         done=True,
-        action_mask=encode_action_mask(local_obs(), ActionSpec("speed_only")),
         agent_id="av_0",
     )
     batch = buffer.compute_returns_and_advantages(gamma=0.99, gae_lambda=0.95, normalize_advantages=False)
@@ -352,7 +288,6 @@ def test_ppo_update_rejects_nonfinite_old_log_probs() -> None:
         reward=1.0,
         value=torch.tensor(0.0),
         done=True,
-        action_mask=encode_action_mask(local_obs(), ActionSpec("speed_only")),
         agent_id="av_0",
     )
 
@@ -380,7 +315,6 @@ def test_ppo_update_clamps_extreme_finite_log_ratios() -> None:
         reward=1.0,
         value=torch.tensor(0.0),
         done=True,
-        action_mask=encode_action_mask(local_obs(), ActionSpec("speed_only")),
         agent_id="av_0",
     )
     batch = buffer.compute_returns_and_advantages(gamma=0.99, gae_lambda=0.95, normalize_advantages=False)
@@ -434,21 +368,13 @@ def test_mappo_critic_uses_global_state_but_controller_rejects_global_state() ->
         controller.act({"av_0": local_obs()}, global_state=global_state())
 
 
-def test_learned_policy_controller_respects_hard_masks() -> None:
+def test_learned_policy_controller_does_not_need_pre_filter_metadata() -> None:
     actor = MultiCategoricalActor(local_obs_dim(), hidden_sizes=(16,), action_spec=ActionSpec("speed_only"))
     controller = LearnedPolicyController(actor)
 
-    actions = controller.act(
-        {
-            "av_0": local_obs(
-                action_mask={
-                    "desired_speed_bin": {"slow": False, "nominal": False, "fast": True},
-                }
-            )
-        }
-    )
+    actions = controller.act({"av_0": local_obs()})
 
-    assert actions["av_0"]["desired_speed_bin"] == "fast"
+    validate_action_mapping(actions, expected_agent_ids=["av_0"])
     assert actions["av_0"]["desired_headway_bin"] == "normal"
     assert actions["av_0"]["lane_preference"] == "keep"
 

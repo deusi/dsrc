@@ -134,7 +134,7 @@ def test_env_exposes_canonical_metrics_for_all_topologies(topology_id: str) -> N
     env = HighwayTopologyEnv(topology_id, {"controlled_vehicles": 2, "duration_steps": 2})
     obs, _ = env.reset(seed=13)
     for local_obs in obs.values():
-        assert "action_mask" in local_obs
+        assert "ego_speed" in local_obs
     obs, _, _, _, info = env.step({agent_id: action() for agent_id in obs})
 
     for key in (
