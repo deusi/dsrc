@@ -1,0 +1,17 @@
+# Runtime dependencies for the Jetson Orin Nano deployment.
+#
+# Already present on the target device via JetPack 6 / system pip
+# (do NOT pip-install these blindly; the Jetson builds are special):
+#   tensorrt==10.3.0          (JetPack)
+#   torch                     (CPU build is sufficient: the actor MLP runs on CPU;
+#                              detection runs through TensorRT directly)
+#   opencv-python
+#   numpy
+#   ultralytics               (only needed to export YOLO -> ONNX, not at runtime)
+#   jetson-stats              (optional: power/utilization sampling via jtop)
+#
+# Installed for this deployment:
+pyserial>=3.5          # GPS serial port access
+pynmea2>=1.19          # NMEA sentence parsing
+cuda-python<13         # CUDA runtime bindings for TensorRT buffer management
+PyYAML>=6.0

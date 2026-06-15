@@ -1,0 +1,28 @@
+{
+  "description": "I-495 eastbound beltway cruise, 300 s, dense flowing traffic. Speed profile averages ~24 m/s (clip covers ~4.5 mi in 300 s); one 4 s GPS dropout at t=180 exercises the hold-on-stale path. Camera block fitted by calibration/auto_horizon.py (633 detections, MAD 18 px; fx assumes 100 deg HFOV).",
+  "video": "../clips/i495_eastbound_480p.avi",
+  "camera": {
+    "width": 854,
+    "height": 480,
+    "fx_px": 358.3,
+    "cx_px": 427.0,
+    "cy_px": 240.0,
+    "horizon_y_px": 223.0,
+    "camera_height_m": 1.28,
+    "hood_line_y_px": 432
+  },
+  "observation": {
+    "free_flow_speed_mps": 26.8
+  },
+  "gps": {
+    "start": {"lat": 39.0339, "lon": -77.1773, "heading_deg": 105.0},
+    "rate_hz": 5,
+    "speed_profile_mps": [
+      [0, 23.0], [40, 26.0], [90, 26.0], [120, 21.0], [150, 24.0],
+      [210, 27.0], [250, 25.0], [300, 24.0]
+    ],
+    "dropouts_s": [[180, 184]],
+    "noise": {"speed_std_mps": 0.12, "pos_std_m": 1.2},
+    "seed": 1
+  }
+}

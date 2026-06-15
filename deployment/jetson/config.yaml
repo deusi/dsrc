@@ -1,0 +1,107 @@
+# Configuration for the Jetson Orin Nano advisory-only deployment.
+# All units are SI (meters, seconds, m/s) unless the key name says otherwise.
+
+paths:
+  models_dir: models                 # relative to this file's directory
+  log_dir: ~/dsrc_logs               # one run_<timestamp>/ subdir per run
+
+camera:
+  # "0" -> /dev/video0 via V4L2 (USB UVC camera)
+  # "file:/abs/path.mp4" -> replay/bench from a video file
+  # "csi:0" -> CSI camera via GStreamer (requires OpenCV built with GStreamer;
+  #            the pip wheel is NOT - see README "CSI cameras")
+  source: "0"
+  width: 1280
+  height: 720
+  fps: 30
+  fourcc: MJPG                       # MJPG keeps USB bandwidth + capture latency low
+  # Intrinsics for distance estimation. Defaults assume a ~78 deg HFOV webcam
+  # at 1280 px. Calibrate with calibration/camera_calibration.py before
+  # trusting distances (see README "Calibration").
+  fx_px: 800.0
+  cx_px: 640.0
+  cy_px: 360.0
+  horizon_y_px: 360.0                # image row of the horizon on flat road
+  camera_height_m: 1.25              # lens height above the road surface
+  # If the ego hood is visible, the row where it starts: detections whose
+  # bbox center is below this are dropped (the detector boxes the hood and
+  # its reflections as "car" -> phantom leader at minimum range).
+  hood_line_y_px: null
+
+gps:
+  port: /dev/ttyACM0                 # gpyes 2.0 (u-blox 8) enumerates here
+  baud: 9600
+  configure_rate: true               # send UBX-CFG-RATE at startup
+  target_rate_hz: 5                  # u-blox M8 supports 5 Hz multi-GNSS
+  stale_after_s: 2.0                 # fix older than this -> observation degraded
+
+detector:
+  engine: models/yolov8n_640_fp16.engine
+  input_size: 640
+  conf_threshold: 0.35
+  iou_threshold: 0.5
+  vehicle_classes: [2, 3, 5, 7]      # COCO: car, motorcycle, bus, truck
+  max_detections: 64
+
+tracker:
+  iou_match_threshold: 0.3
+  max_age_frames: 10                 # drop track after this many missed frames
+  min_hits: 2                        # frames before a track is reported
+
+distance:
+  method: ground_plane               # ground_plane | width_prior
+  ema_alpha: 0.45                    # bbox-distance smoothing (higher = snappier)
+  rel_speed_window: 8                # samples for least-squares d(distance)/dt
+  rel_speed_min_span_s: 0.2          # window must span this at camera fps
+  class_widths_m: {2: 1.8, 3: 0.8, 5: 2.55, 7: 2.5}   # width-prior fallback
+  max_range_m: 120.0
+
+observation:
+  effective_range_m: 80.0            # forward camera sensing range for density
+  symmetrize_counts: true            # extrapolate forward-only counts to +-range
+  free_flow_speed_mps: 30.0          # sim decode default (= 67 mph); set per road
+  assumed_lane: 1                    # ego lane index when lane detection is absent
+  lane_width_m: 3.7
+  target_headway_default_s: 1.6      # sim wrappers decode_headway_bin("normal")
+  # Sim parity values - keep in sync with dsrc/src (specs/observation_schema.md)
+  queue_speed_mps: 5.0
+  density_bin_edges_veh_per_km: [12.0, 30.0]
+  mean_speed_bin_edges_mps: [8.0, 18.0]
+  uncongested_density_threshold_veh_per_km: 12.0
+  low_speed_free_flow_delta_mps: 8.0
+
+policy:
+  bundle: models/actor_policy        # loads <bundle>.ts + <bundle>.json
+  deterministic: true                # argmax heads (use sampling only for debug)
+  # Advisory decode mirrors dsrc/src/envs/wrappers.py decode_speed_bin /
+  # decode_headway_bin - verified by tests/test_sim_contract.py
+  min_contextual_speed_mps: 12.0
+  confidence_low_below: 0.45         # min head prob -> low / medium / high label
+  confidence_high_at: 0.70
+
+v2v:
+  enabled: false                     # optional UDP cooperation beacons (2+ units)
+  port: 47808
+  beacon_hz: 2.0
+  peer_ttl_s: 2.0
+  range_m: 150.0                     # sim sensing range for nearby_av_* fields
+
+ui:
+  display: true                      # false on headless / SSH-only runs
+  fullscreen: false
+  units: mph                         # mph | kmh | mps (display only)
+
+telemetry:
+  enabled: true                      # UDP JSON tick summaries (no frames)
+  udp_host: 127.0.0.1
+  udp_port: 47900
+
+logio:
+  metadata: true                     # JSONL per-tick records
+  video: false                       # annotated MJPG video (costs ~5-8 ms/frame)
+  nmea: true                         # raw NMEA log for replay
+  system_stats: true                 # jtop power/util samples (if jetson-stats)
+  system_stats_interval_s: 5.0
+
+loop:
+  target_hz: 0                       # 0 = run as fast as the detector allows
