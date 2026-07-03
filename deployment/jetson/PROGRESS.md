@@ -55,12 +55,11 @@ Reference simulated runs (each has `report.md` + plots from `eval_run.py`):
 3. Calibrate (README "Calibration") and set `camera:` values in config.yaml;
    if the mount sees the hood, also set `camera.hood_line_y_px` (phantom-
    leader filter — see ARCHITECTURE §10).
-4. When training finishes: export the real checkpoint
-   (`python3 policy/export_policy.py --checkpoint ... --out models/actor_policy`)
-   — the UNTRAINED banner disappears by itself. Then re-run both scenarios
-   (`run_demo.py --scenario ...` + `eval_run.py`) — first end-to-end look at
-   trained advisories on real footage; head-switch rate should drop far
-   below the random bundle's ~160–180/min.
+4. DONE 2026-07-02 — trained checkpoint (workstation Stage-0 v3 `clean_s7`)
+   exported and validated on both scenarios (PASS; head switches 170→31/min
+   on i495; advisory gap-conditioned with zero exceptions). Optional polish:
+   advisory-layer hysteresis to damp leader-acquisition flicker; review and
+   commit the sim fixes + training configs on the sim side.
 5. Re-run `bench_latency.py` + a live logged run for final paper numbers
    (live e2e expected ~25–55 ms including camera frame interval; the
    simulated drives already measured p95 ~34–38 ms paced at 30 fps).
@@ -68,6 +67,79 @@ Reference simulated runs (each has `report.md` + plots from `eval_run.py`):
    from the plan).
 
 ## Session log
+
+- **2026-07-02 (final)** — TRAINED POLICY DEPLOYED. v3 training (5 runs,
+  3000 updates, ring/heterogeneous/2 AVs + 8 humans, crash_penalty 2.0,
+  entropy 0.005 — config `shared_ppo_stage0`) produced genuinely different
+  strategies per seed; winner `clean_s7` (nominal with leader, fast when
+  clear) exported to `models/actor_policy` (trained=True, UNTRAINED banner
+  gone; smoketest bundle deleted). Sim-side eval: all learned policies ≈
+  cooperative_smoothing (11.8–12.6 vs 11.1 m/s; no controller survives the
+  full 120 steps — aggressive humans eventually rear-end any slower AV);
+  no_av collapses (2.6–6.4 m/s, jam 0.43–0.78). Scenario re-runs with the
+  trained bundle — both PASS all gates:
+  - highway_decel `run_20260702_214612` (902 ticks, e2e p50 21.2/p95 22.2 ms):
+    advisory gap-conditioned — leader <60 m → nominal 100%, open road →
+    fast 100%, 97% nominal while braking; head switches 52.5/min
+    (random bundle was ~170/min). Edge case: stationary pileup cars can
+    drop out of tracking at very close range → brief fast flickers (3% of
+    low-speed ticks).
+  - i495_cruise `run_20260702_214755` (8383 ticks/280 s, e2e p50 24.2/
+    p95 25.0 ms, 29.9 Hz): 93.3% nominal / 6.7% fast, rec p50 23.8 m/s
+    (= free_flow−3 ✓), head switches 30.6/min, leader→nominal with zero
+    exceptions over all ticks.
+  Remaining advisory roughness = leader-track acquisition flicker at the
+  fast/nominal boundary; a small hysteresis in the advisory layer would
+  cut the switch rate further (not implemented).
+  NOTE for the sim side: training uncovered 3 sim bugs (fixed, uncommitted,
+  `ws:~/dsrc/outputs/sim_fixes.patch`) + the crash-penalty/entropy training
+  changes (`shared_ppo_stage0.yaml`); tests 133→138. Review + commit.
+
+- **2026-07-02 (afternoon update)** — first training launch was INVALID and
+  surfaced three sim bugs (fixed, uncommitted — patch at
+  ws:~/dsrc/outputs/sim_fixes.patch, review before committing):
+  (1) ring spawn packed all 14 vehicles onto one 65 m arc (per-arc modulo +
+  single spawn-lane entry) → 12 pre-crashed at t=1, every episode terminated
+  at step 1, so PPO saw a constant world (scores frozen at 18.4286 = the
+  crash-clamped speed mean); (2) `road.step(dt=1.0)` did one 1 s Euler step
+  per decision → IDM phantom collisions/negative speeds; now 10 physics
+  substeps per 1 Hz decision (highway_env's intended design); (3)
+  run_baseline gave initial ring humans only to no_av → baselines and
+  evaluate_policy ran near-empty rings (my earlier "no_av collapses vs
+  learned 17.2 m/s" comparison was apples-to-oranges — retracted).
+  Also two design findings: training default human-model "normal" is
+  homogeneous (no seed-to-seed variation), and the contract's speed-bin
+  decode (slow = free_flow−10, floor 12 m/s) has no authority when flow
+  equilibrium < 15 m/s — density must keep flow in the actionable band.
+  v2 training env (validated by probes): ring, heterogeneous humans,
+  2 AVs + 8 humans — humans-only collapses into stop-and-go with crashes;
+  2 slow-commanding AVs fully stabilize it; slow-vs-fast trajectories
+  diverge (authority ✓). Deployment contract untouched. Sim tests 133→137.
+  v2 fleet: 4 clean seeds + 1 deploysense, 3000 updates × 256 steps,
+  ~1.8 s/update (~1.5–2 h). eval staged (evaluate_all.sh, matched env).
+
+- **2026-07-02** — training kickoff (Claude session, in progress). Stage-0
+  policy training is RUNNING on the user's workstation (`ssh dsrc-ws` =
+  cims-phd-de8-1, i9-14900K/RTX 4000 Ada — evaluated sufficient; env
+  stepping is CPU-bound, ~19 s/update). Repo rsynced there at 46fa023 +
+  uncommitted sensing passthrough (TrainingConfig.sensing → env_config;
+  new `configs/training/shared_ppo_deploysense.yaml` with Jetson-measured
+  noise: range 100 m, pos σ 1.5 m, speed σ 0.15 m/s; patch copy in
+  ws:~/dsrc/outputs/sensing_passthrough.patch); 134/134 sim tests pass
+  there (py3.12, torch 2.12.1, highway-env 1.11). Runs: 4 clean seeds
+  (7/17/27/37) + 1 deploysense (seed 7), shared_ppo speed_only, ring/
+  medium/normal, 1500 updates × 256 steps each, ETA ~9 h from 12:45.
+  State: `ssh dsrc-ws 'bash ~/dsrc/outputs/stage0/status.sh'`; eval staged
+  at ws:~/dsrc/outputs/stage0/evaluate_all.sh (argmax vs no_av +
+  cooperative_smoothing, seeds 101–103). Export path dry-run VERIFIED
+  end-to-end with the 5-update smoke checkpoint: ws actor.pt →
+  `export_policy.py --checkpoint` → trained bundle → highway_decel
+  scenario runs with a stable advisory (rec 44.7 mph constant, e2e p50
+  20.2 ms; delete `models/actor_policy_smoketest.*` after the real
+  export). Dry-run reference (ring/medium seed 101): no_av collapses
+  (mean speed 0.26 m/s, jam 0.99, 12 collisions) vs smoke policy 17.2 m/s,
+  0 collisions — AV presence alone is a huge effect; tonight's eval
+  separates learning from presence.
 
 - **2026-06-12** — simulated-drive harness (Claude session). New:
   `sensors/gps_sim.py` (profile-scripted GPS twin, dropouts/noise/loop),
