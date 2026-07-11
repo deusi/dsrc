@@ -1,0 +1,26 @@
+{
+  "description": "Expressway approach to a multi-car rear-end pileup, 30 s. Ego speed profile brakes 24 -> 5 m/s from t=16 as the camera car approaches the event - exercises leader-gap closing, relative-speed sign, and the advisory slowdown path. Camera block fitted by calibration/auto_horizon.py (213 detections, MAD 6.4 px; fx assumes 100 deg HFOV).",
+  "video": "../clips/highway_decel_event_720p.avi",
+  "camera": {
+    "width": 1280,
+    "height": 720,
+    "fx_px": 537.0,
+    "cx_px": 640.0,
+    "cy_px": 360.0,
+    "horizon_y_px": 385.4,
+    "camera_height_m": 0.92,
+    "hood_line_y_px": 560
+  },
+  "observation": {
+    "free_flow_speed_mps": 30.0
+  },
+  "gps": {
+    "start": {"lat": 30.25, "lon": 120.16, "heading_deg": 90.0},
+    "rate_hz": 5,
+    "speed_profile_mps": [
+      [0, 24.0], [16, 24.0], [20, 17.0], [24, 9.0], [27, 6.0], [30, 5.0]
+    ],
+    "noise": {"speed_std_mps": 0.1, "pos_std_m": 1.0},
+    "seed": 2
+  }
+}

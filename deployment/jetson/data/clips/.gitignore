@@ -1,0 +1,3 @@
+# bulky test footage stays local; SOURCES.md records where to re-fetch it
+*.webm
+*.avi
