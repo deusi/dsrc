@@ -1,4 +1,4 @@
-\begin{thebibliography}{30}
+\begin{thebibliography}{34}
 \providecommand{\natexlab}[1]{#1}
 \providecommand{\url}[1]{\texttt{#1}}
 \expandafter\ifx\csname urlstyle\endcsname\relax
@@ -43,6 +43,13 @@ Jung-Hoon Cho, Sirui Li, Jeongyun Kim, and Cathy Wu.
 \newblock Technical Report EN 302 637-2 V1.4.1, European Telecommunications
   Standards Institute, 2019.
 
+\bibitem[{ETSI}(2023)]{etsi2023cpm}
+{ETSI}.
+\newblock Intelligent transport systems ({ITS}); vehicular communications;
+  basic set of applications; collective perception service; release 2.
+\newblock Technical Report TS 103 324 V2.1.1, European Telecommunications
+  Standards Institute, 2023.
+
 \bibitem[Fridman(2018)]{fridman2018human}
 Lex Fridman.
 \newblock Human-centered autonomous vehicle systems: Principles of effective
@@ -62,6 +69,15 @@ Danijar Hafner, Timothy Lillicrap, Jimmy Ba, and Mohammad Norouzi.
 \newblock Dream to control: Learning behaviors by latent imagination.
 \newblock In \emph{International Conference on Learning Representations
   (ICLR)}, 2020.
+
+\bibitem[Herrera et~al.(2010)Herrera, Work, Herring, Ban, Jacobson, and
+  Bayen]{herrera2010evaluation}
+Juan~C. Herrera, Daniel~B. Work, Ryan Herring, Xuegang Ban, Quinn Jacobson, and
+  Alexandre~M. Bayen.
+\newblock Evaluation of traffic data obtained via {GPS}-enabled mobile phones:
+  The {Mobile Century} field experiment.
+\newblock \emph{Transportation Research Part C: Emerging Technologies},
+  18\penalty0 (4):\penalty0 568--583, 2010.
 
 \bibitem[Janner et~al.(2019)Janner, Fu, Zhang, and Levine]{janner2019trust}
 Michael Janner, Justin Fu, Marvin Zhang, and Sergey Levine.
@@ -133,6 +149,11 @@ Paul~I Richards.
 \newblock {V2X} communications message set dictionary.
 \newblock Technical Report J2735, SAE International, 2020.
 
+\bibitem[Seo et~al.(2017)Seo, Bayen, Kusakabe, and Asakura]{seo2017traffic}
+Toru Seo, Alexandre~M. Bayen, Takahiko Kusakabe, and Yasuo Asakura.
+\newblock Traffic state estimation on highway: A comprehensive survey.
+\newblock \emph{Annual Reviews in Control}, 43:\penalty0 128--151, 2017.
+
 \bibitem[Stern et~al.(2018)Stern, Cui, Delle~Monache, Bhadani, Bunting,
   Churchill, Hamilton, Haulcy, Pohlmann, Wu, Piccoli, Seibold, Sprinkle, and
   Work]{stern2018dissipation}
@@ -159,6 +180,12 @@ Richard~S. Sutton.
 \newblock Dyna, an integrated architecture for learning, planning, and
   reacting.
 \newblock \emph{ACM SIGART Bulletin}, 2\penalty0 (4):\penalty0 160--163, 1991.
+
+\bibitem[Swaroop and Hedrick(1996)]{swaroop1996string}
+Darbha Swaroop and J.~Karl Hedrick.
+\newblock String stability of interconnected systems.
+\newblock \emph{IEEE Transactions on Automatic Control}, 41\penalty0
+  (3):\penalty0 349--357, 1996.
 
 \bibitem[Tassiulas and Ephremides(1990)]{tassiulas1990stability}
 Leandros Tassiulas and Anthony Ephremides.

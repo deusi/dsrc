@@ -11,7 +11,7 @@
         "/scratch/ab9738/dsrc/cuda11.8.86-cudnn8.7-devel-ubuntu22.04.2.sif",
         "bash",
         "-lc",
-        "cd '%DIR%' && export TEXINPUTS=.:./: && pdflatex -synctex=1 -interaction=nonstopmode -file-line-error '%DOCFILE%.tex'"
+        "cd '%DIR%' && export TEXMFHOME=/scratch/ab9738/dsrc/.vscode/texmf TEXMFVAR=/scratch/ab9738/dsrc/.vscode/texmf-var TEXMFCONFIG=/scratch/ab9738/dsrc/.vscode/texmf-config TEXMFDBS='/scratch/ab9738/dsrc/.vscode/texmf:{!!/usr/local/share/texmf,!!/var/lib/texmf,!!/usr/share/texmf,!!/usr/share/texlive/texmf-dist}' TEXINPUTS=.:./: && pdflatex -synctex=1 -interaction=nonstopmode -file-line-error '%DOCFILE%.tex'"
       ]
     },
     {
@@ -24,7 +24,7 @@
         "/scratch/ab9738/dsrc/cuda11.8.86-cudnn8.7-devel-ubuntu22.04.2.sif",
         "bash",
         "-lc",
-        "cd '%DIR%' && export TEXINPUTS=.:./: && bibtex '%DOCFILE%'"
+        "cd '%DIR%' && export TEXMFHOME=/scratch/ab9738/dsrc/.vscode/texmf TEXMFVAR=/scratch/ab9738/dsrc/.vscode/texmf-var TEXMFCONFIG=/scratch/ab9738/dsrc/.vscode/texmf-config TEXMFDBS='/scratch/ab9738/dsrc/.vscode/texmf:{!!/usr/local/share/texmf,!!/var/lib/texmf,!!/usr/share/texmf,!!/usr/share/texlive/texmf-dist}' TEXINPUTS=.:./: && bibtex '%DOCFILE%'"
       ]
     }
   ],

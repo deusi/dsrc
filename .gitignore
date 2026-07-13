@@ -4,3 +4,6 @@ HighwayEnv-sourcecode/
 logs/
 outputs/
 __pycache__/
+texmf/
+texmf-config/
+texmf-var/
